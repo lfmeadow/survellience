@@ -1,0 +1,41 @@
+[package]
+name = "surveillance"
+version = "0.1.0"
+edition = "2021"
+
+[[bin]]
+name = "surveillance_scanner"
+path = "../../bins/surveillance_scanner.rs"
+
+[[bin]]
+name = "surveillance_collect"
+path = "../../bins/surveillance_collect.rs"
+
+[[bin]]
+name = "surveillance_miner"
+path = "../../bins/surveillance_miner.rs"
+
+[dependencies]
+anyhow = { workspace = true }
+tokio = { workspace = true }
+tokio-tungstenite = { workspace = true }
+tokio-native-tls = "0.3"
+native-tls = "0.2"
+serde = { workspace = true }
+serde_json = { workspace = true }
+toml = { workspace = true }
+arrow2 = { workspace = true }
+parquet2 = { workspace = true }
+polars = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }
+futures = { workspace = true }
+async-trait = "0.1"
+fastrand = "2.0"
+reqwest = { version = "0.11", default-features = false, features = ["json", "rustls-tls", "rustls-tls-webpki-roots"] }
+url = "2.5"
+
+[dev-dependencies]
+tempfile = "3.8"

@@ -1,0 +1,41 @@
+data_dir = "data"
+
+[venues.polymarket]
+enabled = false
+api_key = ""
+api_secret = ""
+ws_url = "wss://api.polymarket.com/ws"
+rest_url = "https://api.polymarket.com"
+max_subs = 200
+hot_count = 40
+rotation_period_secs = 180
+snapshot_interval_ms_hot = 2000
+snapshot_interval_ms_warm = 10000
+subscription_churn_limit_per_minute = 20
+
+[venues.kalshi]
+enabled = false
+api_key = ""
+api_secret = ""
+ws_url = "wss://api.kalshi.com/trade-api/v2/ws"
+rest_url = "https://api.kalshi.com/trade-api/v2"
+max_subs = 200
+hot_count = 40
+rotation_period_secs = 180
+snapshot_interval_ms_hot = 2000
+snapshot_interval_ms_warm = 10000
+subscription_churn_limit_per_minute = 20
+
+[storage]
+top_k = 50
+flush_rows = 50000
+flush_seconds = 5
+bucket_minutes = 5
+
+[rotation]
+enabled = true
+
+[mock]
+enabled = true
+universe_size = 1000
+markets_per_venue = 500
