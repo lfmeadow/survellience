@@ -1,13 +1,12 @@
 use crate::collector::book::BookStore;
 use crate::config::Config;
-use crate::schema::SnapshotRow;
 use crate::storage::ParquetWriter;
 use chrono::Utc;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::time::{interval, Duration};
-use tracing::{debug, info};
+use tracing::debug;
 use serde_json;
 
 pub struct Snapshotter {

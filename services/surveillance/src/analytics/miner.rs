@@ -2,7 +2,7 @@ use crate::config::Config;
 use anyhow::{Context, Result};
 use chrono::Utc;
 use polars::prelude::*;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tracing::{info, warn};
 
 pub struct Miner {

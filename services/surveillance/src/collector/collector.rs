@@ -1,4 +1,5 @@
 use crate::collector::book::BookStore;
+use crate::collector::metrics::WebSocketMetrics;
 use crate::collector::snapshotter::Snapshotter;
 use crate::collector::subscriptions::SubscriptionManager;
 use crate::config::Config;
@@ -6,11 +7,10 @@ use crate::scheduler::Scheduler;
 use crate::storage::ParquetWriter;
 use crate::venue::Venue;
 use anyhow::{Context, Result};
-use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::time::{interval, Duration};
-use tracing::{debug, error, info, warn};
+use tracing::{debug, info, warn};
 
 pub struct Collector {
     config: Arc<Config>,
@@ -20,6 +20,7 @@ pub struct Collector {
     book_store: Arc<Mutex<BookStore>>,
     subscription_manager: Arc<SubscriptionManager>,
     snapshotter: Arc<Snapshotter>,
+    metrics: Arc<WebSocketMetrics>,
 }
 
 impl Collector {
@@ -44,6 +45,8 @@ impl Collector {
             venue_name.clone(),
         ));
 
+        let metrics = Arc::new(WebSocketMetrics::new(60)); // Report every 60 seconds
+
         Self {
             config,
             venue_name,
@@ -52,6 +55,7 @@ impl Collector {
             book_store,
             subscription_manager,
             snapshotter,
+            metrics,
         }
     }
 
@@ -60,7 +64,7 @@ impl Collector {
 
         // Connect WebSocket
         {
-            let mut venue = self.subscription_manager.venue.lock().await;
+            let venue = self.subscription_manager.venue.lock().await;
             venue.connect_websocket().await
                 .with_context(|| format!("Failed to connect WebSocket for {}", self.venue_name))?;
         }
@@ -74,6 +78,7 @@ impl Collector {
         // Start update processing loop
         let book_store = self.book_store.clone();
         let subscription_manager = self.subscription_manager.clone();
+        let metrics = self.metrics.clone();
         tokio::spawn(async move {
             loop {
                 let mut venue = subscription_manager.venue.lock().await;
@@ -81,6 +86,14 @@ impl Collector {
                     Ok(Some(update)) => {
                         debug!("Received update: market={}, outcome={}, bids={}, asks={}", 
                             update.market_id, update.outcome_id, update.bids.len(), update.asks.len());
+                        
+                        // Record update processed and check for sequence gaps
+                        metrics.record_update_processed(
+                            &update.market_id,
+                            &update.outcome_id,
+                            update.sequence,
+                        ).await;
+                        
                         let mut store = book_store.lock().await;
                         let book = store.get_or_create(
                             update.market_id.clone(),
@@ -92,16 +105,28 @@ impl Collector {
                             update.timestamp_ms.unwrap_or_else(|| chrono::Utc::now().timestamp_millis()),
                             update.sequence,
                         );
+                        
                         debug!("Updated book store: market={}, outcome={}", update.market_id, update.outcome_id);
                     }
                     Ok(None) => {
                         tokio::time::sleep(Duration::from_millis(10)).await;
                     }
                     Err(e) => {
+                        metrics.record_error();
                         warn!("Error receiving update: {}", e);
                         tokio::time::sleep(Duration::from_millis(1000)).await;
                     }
                 }
+            }
+        });
+        
+        // Start metrics reporting loop
+        let metrics_clone = self.metrics.clone();
+        tokio::spawn(async move {
+            let mut report_interval = interval(Duration::from_secs(60));
+            loop {
+                report_interval.tick().await;
+                metrics_clone.maybe_report().await;
             }
         });
 

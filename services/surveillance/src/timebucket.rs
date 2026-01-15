@@ -1,4 +1,4 @@
-use chrono::{DateTime, NaiveDateTime, Timelike, Utc};
+use chrono::{DateTime, Timelike, Utc};
 use std::fmt;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

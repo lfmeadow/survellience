@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::venue::{MarketInfo, Venue};
+use crate::venue::Venue;
 use anyhow::{Context, Result};
 use chrono::Utc;
 use std::collections::HashMap;

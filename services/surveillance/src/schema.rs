@@ -37,10 +37,10 @@ impl SnapshotRow {
         source_ts: Option<i64>,
     ) -> Self {
         // Ensure bids are sorted descending, asks ascending
-        let mut bid_px = bid_px;
-        let mut bid_sz = bid_sz;
-        let mut ask_px = ask_px;
-        let mut ask_sz = ask_sz;
+        let bid_px = bid_px;
+        let bid_sz = bid_sz;
+        let ask_px = ask_px;
+        let ask_sz = ask_sz;
 
         // Sort bids descending by price
         let mut bid_indices: Vec<usize> = (0..bid_px.len()).collect();

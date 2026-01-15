@@ -2,7 +2,7 @@ use super::traits::{MarketInfo, OrderBookLevel, OrderBookUpdate, Venue};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -166,8 +166,10 @@ pub struct PolymarketVenue {
     connected: Arc<AtomicBool>,
     ws_stream: Arc<Mutex<Option<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>>>>,
     ws_sender: Arc<Mutex<Option<futures::stream::SplitSink<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>, Message>>>>,
-    message_queue: Arc<Mutex<Vec<OrderBookUpdate>>>,
+    message_queue: Arc<Mutex<VecDeque<OrderBookUpdate>>>,
     sequence: Arc<AtomicU64>,
+    // Per-market/outcome sequence counters for gap detection
+    market_sequences: Arc<Mutex<HashMap<(String, String), AtomicU64>>>,
     subscribed_markets: Arc<Mutex<HashMap<String, Vec<String>>>>, // market_id -> outcome_ids
     // Token ID (asset_id) -> (market_id, outcome_id) mapping
     token_to_market: Arc<Mutex<HashMap<String, (String, String)>>>,
@@ -184,8 +186,9 @@ impl PolymarketVenue {
             connected: Arc::new(AtomicBool::new(false)),
             ws_stream: Arc::new(Mutex::new(None)),
             ws_sender: Arc::new(Mutex::new(None)),
-            message_queue: Arc::new(Mutex::new(Vec::new())),
+            message_queue: Arc::new(Mutex::new(VecDeque::new())),
             sequence: Arc::new(AtomicU64::new(1)),
+            market_sequences: Arc::new(Mutex::new(HashMap::new())),
             subscribed_markets: Arc::new(Mutex::new(HashMap::new())),
             token_to_market: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -531,7 +534,7 @@ impl Venue for PolymarketVenue {
 
         // Start message processing loop
         let message_queue = self.message_queue.clone();
-        let sequence = self.sequence.clone();
+        let market_sequences = self.market_sequences.clone();
         let token_to_market = self.token_to_market.clone();
         let venue_name = self.name.clone();
         
@@ -612,18 +615,35 @@ impl Venue for PolymarketVenue {
                                 let timestamp_ms = snapshot.timestamp.as_ref()
                                     .and_then(|ts| ts.parse::<i64>().ok());
                                 
+                                // Use per-market/outcome sequence counter for gap detection
+                                // (Polymarket CLOB doesn't provide sequence numbers)
+                                let seq_key = (market_id.clone(), outcome_id.clone());
+                                let seq = {
+                                    let mut market_seqs = market_sequences.lock().await;
+                                    let counter = market_seqs.entry(seq_key.clone())
+                                        .or_insert_with(|| AtomicU64::new(1));
+                                    counter.fetch_add(1, Ordering::Relaxed) as i64
+                                };
+                                
                                 let update = OrderBookUpdate {
                                     market_id: market_id.clone(),
                                     outcome_id: outcome_id.clone(),
                                     bids,
                                     asks,
                                     timestamp_ms,
-                                    sequence: sequence.fetch_add(1, Ordering::Relaxed) as i64,
+                                    sequence: seq,
                                 };
                                 
                                 let bids_len = update.bids.len();
                                 let asks_len = update.asks.len();
-                                message_queue.lock().await.push(update);
+                                {
+                                    let mut queue = message_queue.lock().await;
+                                    queue.push_back(update);
+                                    // Log queue depth periodically
+                                    if queue.len() % 100 == 0 {
+                                        tracing::debug!("Message queue depth: {}", queue.len());
+                                    }
+                                }
                                 parsed_any = true;
                                 tracing::debug!("Parsed CLOB order book snapshot: market={}, asset_id={}, bids={}, asks={}", 
                                     market_id, snapshot.asset_id, bids_len, asks_len);
@@ -664,16 +684,25 @@ impl Venue for PolymarketVenue {
                                             vec![]
                                         };
                                         
+                                        // Use per-market/outcome sequence counter
+                                        let seq_key = (market_id.clone(), outcome_id.clone());
+                                        let seq = {
+                                            let mut market_seqs = market_sequences.lock().await;
+                                            let counter = market_seqs.entry(seq_key)
+                                                .or_insert_with(|| AtomicU64::new(1));
+                                            counter.fetch_add(1, Ordering::Relaxed) as i64
+                                        };
+                                        
                                         let update = OrderBookUpdate {
                                             market_id: market_id.clone(),
                                             outcome_id: outcome_id.clone(),
                                             bids,
                                             asks,
                                             timestamp_ms: None,
-                                            sequence: sequence.fetch_add(1, Ordering::Relaxed) as i64,
+                                            sequence: seq,
                                         };
                                         
-                                        message_queue.lock().await.push(update);
+                                        message_queue.lock().await.push_back(update);
                                         parsed_any = true;
                                         tracing::debug!("Parsed CLOB price change: market={}, asset_id={}, side={}", 
                                             market_id, change.asset_id, change.side);
@@ -722,16 +751,25 @@ impl Venue for PolymarketVenue {
                                                 let timestamp_ms = snapshot.timestamp.as_ref()
                                                     .and_then(|ts| ts.parse::<i64>().ok());
                                                 
+                                                // Use per-market/outcome sequence counter
+                                                let seq_key = (market_id.clone(), outcome_id.clone());
+                                                let seq = {
+                                                    let mut market_seqs = market_sequences.lock().await;
+                                                    let counter = market_seqs.entry(seq_key)
+                                                        .or_insert_with(|| AtomicU64::new(1));
+                                                    counter.fetch_add(1, Ordering::Relaxed) as i64
+                                                };
+                                                
                                                 let update = OrderBookUpdate {
                                                     market_id: market_id.clone(),
                                                     outcome_id: outcome_id.clone(),
                                                     bids,
                                                     asks,
                                                     timestamp_ms,
-                                                    sequence: sequence.fetch_add(1, Ordering::Relaxed) as i64,
+                                                    sequence: seq,
                                                 };
                                                 
-                                                message_queue.lock().await.push(update);
+                                                message_queue.lock().await.push_back(update);
                                                 tracing::debug!("Parsed CLOB snapshot from array: market={}", market_id);
                                             }
                                         }
@@ -745,7 +783,7 @@ impl Venue for PolymarketVenue {
                             tracing::debug!("Message did not match any known CLOB format");
                         }
                     }
-                    Ok(Message::Ping(data)) => {
+                    Ok(Message::Ping(_data)) => {
                         // Handle ping - will be auto-responded by tungstenite
                         tracing::debug!("Received ping from Polymarket");
                     }
@@ -849,7 +887,7 @@ impl Venue for PolymarketVenue {
 
     async fn receive_update(&mut self) -> Result<Option<OrderBookUpdate>> {
         let mut queue = self.message_queue.lock().await;
-        let update = queue.pop();
+        let update = queue.pop_front();
         if update.is_some() {
             tracing::debug!("Popped update from queue: market={}, outcome={}, queue_size={}", 
                 update.as_ref().unwrap().market_id, 

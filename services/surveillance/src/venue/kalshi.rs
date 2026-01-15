@@ -1,4 +1,4 @@
-use super::traits::{MarketInfo, OrderBookLevel, OrderBookUpdate, Venue};
+use super::traits::{MarketInfo, OrderBookUpdate, Venue};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use std::path::PathBuf;

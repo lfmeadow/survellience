@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::scheduler::scoring::{score_markets, MarketScore, MarketStats};
+use crate::scheduler::scoring::{score_markets, MarketStats};
 use crate::venue::MarketInfo;
 use anyhow::{Context, Result};
 use chrono::Utc;

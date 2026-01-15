@@ -179,7 +179,7 @@ impl ParquetWriter {
         ]).context("Failed to create DataFrame")?;
         
         // Write Parquet using Polars ParquetWriter
-        let file = File::create(&temp_file)
+        let _file = File::create(&temp_file)
             .with_context(|| format!("Failed to create temp file: {:?}", temp_file))?;
         
         // Write Parquet using Polars lazy API
