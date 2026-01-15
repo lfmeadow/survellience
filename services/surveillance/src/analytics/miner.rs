@@ -129,20 +129,21 @@ impl Miner {
 
         let file_path = output_path.join("stats.parquet");
         
-        // TODO: Use Polars to write parquet directly
-        // For now, write as CSV to allow compilation
-        // In production, use: stats.write_parquet(&file_path_str, ParquetWriteOptions::default())?
-        let csv_path = file_path.with_extension("csv");
-        let mut file = std::fs::File::create(&csv_path)
-            .with_context(|| format!("Failed to create stats file: {:?}", csv_path))?;
+        // Write as Parquet using Polars sink_parquet (same pattern as parquet_writer)
+        // sink_parquet takes PathBuf or &str - use PathBuf directly
+        stats.clone()
+            .lazy()
+            .sink_parquet(
+                file_path.clone(),
+                ParquetWriteOptions::default(),
+            )
+            .context("Failed to write Parquet file")?;
         
-        // Write as CSV for now (Polars 0.40 write_parquet API needs investigation)
-        use std::io::Write;
-        writeln!(file, "market_id,outcome_id,avg_depth,avg_spread,update_count")?;
-        // TODO: Iterate stats and write rows
-        drop(file);
+        info!("Wrote stats cache to {:?}", file_path);
         
-        info!("Wrote stats cache to {:?} (CSV format - TODO: convert to Parquet)", csv_path);
+        // Note: CSV export can be done using external tools:
+        //   polars-cli convert stats.parquet stats.csv
+        //   or Python: pl.read_parquet("stats.parquet").write_csv("stats.csv")
 
         info!("Wrote stats cache to {:?}", file_path);
         Ok(())

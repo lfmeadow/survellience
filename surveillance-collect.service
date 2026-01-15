@@ -1,0 +1,17 @@
+[Unit]
+Description=Surveillance Data Collector
+After=network.target
+
+[Service]
+Type=simple
+User=lfmeadow
+WorkingDirectory=/home/lfmeadow/survellience
+Environment="RUST_LOG=info"
+ExecStart=/home/lfmeadow/survellience/target/release/surveillance_collect /home/lfmeadow/survellience/config/surveillance.toml
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

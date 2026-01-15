@@ -1,6 +1,8 @@
-# Polymarket Integration Summary
+# Venue Integration Summary
 
-## ✅ Implementation Complete
+## Polymarket Integration
+
+### ✅ Implementation Complete
 
 The Polymarket venue adapter has been fully implemented with:
 
@@ -135,3 +137,55 @@ cargo run --bin surveillance_collect
 ## 📚 Documentation
 
 See `POLYMARKET_INTEGRATION.md` for detailed usage instructions.
+
+---
+
+## Kalshi Integration
+
+### 🚧 Implementation Status: Structured (Credentials Ready)
+
+The Kalshi venue adapter is structured and ready for implementation. Credential support has been added.
+
+### 🔑 Credentials Configuration
+
+Kalshi uses **RSA-PSS signature authentication**, which requires:
+
+1. **Access Key ID** (`api_key`): Your Kalshi API access key
+   - Obtain from: https://trade.kalshi.com/trade-api/account/settings
+   - Navigate to Account Settings > API Keys > Create New API Key
+
+2. **Private Key** (`api_secret`): RSA private key in PEM format
+   - Provided when creating the API key
+   - Store securely (never commit to version control)
+   - Can be provided as full PEM content in config
+
+### 📝 Configuration
+
+In `config/surveillance.toml`:
+
+```toml
+[venues.kalshi]
+enabled = true
+api_key = "your-access-key-id"  # Kalshi Access Key ID
+api_secret = "-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----"  # RSA private key
+ws_url = "wss://api.kalshi.com/trade-api/v2/ws"
+rest_url = "https://api.kalshi.com/trade-api/v2"
+```
+
+### ✅ Completed
+- Venue adapter structure
+- Configuration support with credential fields
+- Integration points in scanner and collector binaries
+- Documentation and comments
+
+### 🚧 TODO
+- [ ] Implement RSA-PSS signature generation for REST API calls
+- [ ] Implement WebSocket authentication
+- [ ] Implement market discovery REST API call
+- [ ] Implement WebSocket connection and message handling
+- [ ] Implement order book subscription/unsubscription
+- [ ] Parse Kalshi order book message format
+
+### 📚 Documentation
+
+See `KALSHI_INTEGRATION.md` for detailed credential setup and implementation guide.

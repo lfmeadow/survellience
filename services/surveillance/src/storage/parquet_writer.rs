@@ -197,7 +197,7 @@ impl ParquetWriter {
             .with_context(|| format!("Failed to rename {:?} to {:?}", temp_file, final_file))?;
 
         info!(
-            "Wrote {} rows to {:?} (CSV format - Parquet TODO)",
+            "Wrote {} rows to {:?} (Parquet format)",
             rows.len(),
             final_file
         );

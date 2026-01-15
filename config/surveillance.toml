@@ -1,11 +1,13 @@
 data_dir = "data"
 
 [venues.polymarket]
-enabled = false
+enabled = true
+# Polymarket does not require credentials for read-only access (market discovery and order book data)
+# Leave empty for public endpoints
 api_key = ""
 api_secret = ""
-ws_url = "wss://api.polymarket.com/ws"
-rest_url = "https://api.polymarket.com"
+ws_url = "wss://ws-subscriptions-clob.polymarket.com/ws/market"
+rest_url = "https://gamma-api.polymarket.com"
 max_subs = 200
 hot_count = 40
 rotation_period_secs = 180
@@ -15,7 +17,13 @@ subscription_churn_limit_per_minute = 20
 
 [venues.kalshi]
 enabled = false
+# Kalshi Access Key ID - Get from: https://trade.kalshi.com/trade-api/account/settings
+# Navigate to Account Settings > API Keys > Create New API Key
+# If empty, will try to load from ~/.ssh/kalshi
 api_key = ""
+# Kalshi Private Key (RSA format) - Provided when creating API key
+# Store securely - this is your RSA private key content
+# If empty, will try to load from ~/.ssh/id_kalshi_rsa
 api_secret = ""
 ws_url = "wss://api.kalshi.com/trade-api/v2/ws"
 rest_url = "https://api.kalshi.com/trade-api/v2"
@@ -36,6 +44,6 @@ bucket_minutes = 5
 enabled = true
 
 [mock]
-enabled = true
+enabled = false
 universe_size = 1000
 markets_per_venue = 500

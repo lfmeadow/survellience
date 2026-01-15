@@ -91,6 +91,7 @@ impl Venue for MockVenue {
                 close_ts: Some(chrono::Utc::now().timestamp_millis() + 86400_000),
                 status: "active".to_string(),
                 tags: vec!["mock".to_string()],
+                token_ids: vec![], // Mock venue doesn't use token IDs
             });
         }
         Ok(markets)

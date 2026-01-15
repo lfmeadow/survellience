@@ -78,13 +78,32 @@ impl SubscriptionManager {
         }
 
         // Process adds first (subscribe before unsubscribe)
+        // For Polymarket, batch token_ids together (CLOB WebSocket expects all token IDs in one message)
         let mut pending_add = self.pending_add.lock().await;
-        while !pending_add.is_empty() && *churn_count < churn_limit {
-            let (market_id, outcome_id) = pending_add.remove(0);
-            let venue = self.venue.lock().await;
-            venue.subscribe(&[market_id.clone()], &[outcome_id.clone()]).await?;
-            *churn_count += 1;
-            debug!("Subscribed to {}/{}", market_id, outcome_id);
+        if self.venue_name == "polymarket" {
+            // Collect all token_ids to subscribe to
+            let mut token_ids: Vec<String> = pending_add.iter()
+                .map(|(token_id, _)| token_id.clone())
+                .collect();
+            token_ids.sort();
+            token_ids.dedup();
+            
+            if !token_ids.is_empty() && *churn_count < churn_limit {
+                let venue = self.venue.lock().await;
+                venue.subscribe(&token_ids, &[]).await?;
+                *churn_count += 1;
+                debug!("Subscribed to {} token IDs (Polymarket)", token_ids.len());
+                pending_add.clear(); // Clear all since we subscribed to all at once
+            }
+        } else {
+            // Other venues: subscribe one at a time
+            while !pending_add.is_empty() && *churn_count < churn_limit {
+                let (market_id, outcome_id) = pending_add.remove(0);
+                let venue = self.venue.lock().await;
+                venue.subscribe(&[market_id.clone()], &[outcome_id.clone()]).await?;
+                *churn_count += 1;
+                debug!("Subscribed to {}/{}", market_id, outcome_id);
+            }
         }
 
         // Process removes

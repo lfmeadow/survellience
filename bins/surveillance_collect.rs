@@ -64,10 +64,14 @@ async fn main() -> Result<()> {
 
         if let Some(k_config) = &config.venues.kalshi {
             if k_config.enabled {
+                let (api_key, api_secret) = KalshiVenue::load_credentials(
+                    &k_config.api_key,
+                    &k_config.api_secret,
+                )?;
                 let venue: Box<dyn surveillance::venue::Venue> = Box::new(KalshiVenue::new(
                     "kalshi".to_string(),
-                    k_config.api_key.clone(),
-                    k_config.api_secret.clone(),
+                    api_key,
+                    api_secret,
                     k_config.ws_url.clone().unwrap_or_default(),
                     k_config.rest_url.clone().unwrap_or_default(),
                 ));

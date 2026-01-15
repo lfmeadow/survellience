@@ -101,14 +101,29 @@ cargo test
 - ✅ Collector module
 - ✅ Storage/Parquet writer
 - ✅ Analytics/Miner
-- ⚠️ Real API integrations (Polymarket/Kalshi) - stubbed with TODOs
+- ✅ Polymarket integration (REST API + WebSocket) - **Ready for production**
+- 🚧 Kalshi integration (structure ready, needs API implementation)
+
+## Production Deployment
+
+**Ready for live data collection with Polymarket!**
+
+See `PRODUCTION_QUICKSTART.md` for deployment instructions and `DEPLOYMENT_READINESS.md` for detailed status.
+
+### Quick Start
+
+1. Build: `cargo build --release`
+2. Configure: Edit `config/surveillance.toml` (set `[venues.polymarket].enabled = true`, `[mock].enabled = false`)
+3. Discover markets: `./target/release/surveillance_scanner config/surveillance.toml`
+4. Collect data: `./target/release/surveillance_collect config/surveillance.toml`
+5. Analyze: `./target/release/surveillance_miner config/surveillance.toml $(date +%Y-%m-%d)`
 
 ## TODO
 
-- [ ] Implement real Polymarket WebSocket/REST API integration
-- [ ] Implement real Kalshi WebSocket/REST API integration
-- [ ] Add reconnection backoff logic
+- [ ] Add WebSocket reconnection with exponential backoff
+- [ ] Implement Kalshi API integration (RSA-PSS authentication)
 - [ ] Add Prometheus metrics export
+- [ ] Add health check HTTP endpoint
 - [ ] Improve error handling and recovery
 - [ ] Add more comprehensive tests
 

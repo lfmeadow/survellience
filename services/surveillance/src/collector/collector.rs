@@ -10,7 +10,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::time::{interval, Duration};
-use tracing::{error, info, warn};
+use tracing::{debug, error, info, warn};
 
 pub struct Collector {
     config: Arc<Config>,
@@ -79,6 +79,8 @@ impl Collector {
                 let mut venue = subscription_manager.venue.lock().await;
                 match venue.receive_update().await {
                     Ok(Some(update)) => {
+                        debug!("Received update: market={}, outcome={}, bids={}, asks={}", 
+                            update.market_id, update.outcome_id, update.bids.len(), update.asks.len());
                         let mut store = book_store.lock().await;
                         let book = store.get_or_create(
                             update.market_id.clone(),
@@ -90,6 +92,7 @@ impl Collector {
                             update.timestamp_ms.unwrap_or_else(|| chrono::Utc::now().timestamp_millis()),
                             update.sequence,
                         );
+                        debug!("Updated book store: market={}, outcome={}", update.market_id, update.outcome_id);
                     }
                     Ok(None) => {
                         tokio::time::sleep(Duration::from_millis(10)).await;

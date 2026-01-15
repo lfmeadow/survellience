@@ -60,3 +60,15 @@ coverage/
 # Backup files
 *.bak
 *.backup
+
+# Python virtual environment
+venv/
+env/
+.venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python

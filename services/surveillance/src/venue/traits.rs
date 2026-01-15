@@ -5,12 +5,14 @@ use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MarketInfo {
-    pub market_id: String,
+    pub market_id: String,  // Condition ID (for Polymarket)
     pub title: String,
     pub outcome_ids: Vec<String>,
     pub close_ts: Option<i64>,
     pub status: String,
     pub tags: Vec<String>,
+    #[serde(default)]
+    pub token_ids: Vec<String>,  // Token IDs (clobTokenIds) for WebSocket subscriptions
 }
 
 #[derive(Debug, Clone)]

@@ -1,0 +1,5 @@
+# Python dependencies for surveillance system monitoring scripts
+# Install with: python3 -m venv venv && source venv/bin/activate && pip install -r requirements.txt
+
+polars>=0.20.0
+pyarrow>=12.0.0

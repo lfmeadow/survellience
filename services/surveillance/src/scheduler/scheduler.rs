@@ -49,11 +49,30 @@ impl Scheduler {
 
         for (idx, score) in scores.iter().enumerate() {
             if let Some(market) = markets.iter().find(|m| m.market_id == score.market_id) {
-                for outcome_id in &market.outcome_ids {
-                    if idx < hot_count {
-                        new_hot.insert((score.market_id.clone(), outcome_id.clone()));
-                    } else if new_hot.len() + new_warm.len() < venue_config.max_subs {
-                        new_warm.insert((score.market_id.clone(), outcome_id.clone()));
+                // For Polymarket, use token_ids for subscriptions (CLOB WebSocket requires token IDs)
+                // For other venues, use market_id/outcome_id pairs
+                if venue_name == "polymarket" {
+                    if !market.token_ids.is_empty() {
+                        // Polymarket: subscribe to all token_ids for this market
+                        for token_id in &market.token_ids {
+                            if idx < hot_count {
+                                new_hot.insert((token_id.clone(), "".to_string())); // outcome_id not used for token-based subs
+                            } else if new_hot.len() + new_warm.len() < venue_config.max_subs {
+                                new_warm.insert((token_id.clone(), "".to_string()));
+                            }
+                        }
+                    } else {
+                        // Skip markets without token_ids (they can't be subscribed to via CLOB WebSocket)
+                        debug!("Skipping market {} - no token_ids available", market.market_id);
+                    }
+                } else {
+                    // Other venues: use market_id/outcome_id pairs
+                    for outcome_id in &market.outcome_ids {
+                        if idx < hot_count {
+                            new_hot.insert((score.market_id.clone(), outcome_id.clone()));
+                        } else if new_hot.len() + new_warm.len() < venue_config.max_subs {
+                            new_warm.insert((score.market_id.clone(), outcome_id.clone()));
+                        }
                     }
                 }
             }
