@@ -1,11 +1,15 @@
 use super::traits::{MarketInfo, OrderBookLevel, OrderBookUpdate, Venue};
 use anyhow::{Context, Result};
 use async_trait::async_trait;
+use chrono::{DateTime, Timelike, Utc};
+use polars::prelude::*;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
+use std::path::Path;
 use tokio::sync::Mutex;
+use tokio::time::{Duration, Instant};
 use tokio_tungstenite::{tungstenite::{Message, client::IntoClientRequest}, MaybeTlsStream, WebSocketStream};
 use futures::{SinkExt, StreamExt};
 
@@ -148,6 +152,185 @@ struct PolymarketClobTradeEvent {
 }
 
 #[derive(Debug, Serialize)]
+struct PolymarketTradeRecord {
+    venue: String,
+    market_id: Option<String>,
+    outcome_id: Option<String>,
+    asset_id: String,
+    event_type: String,
+    price: Option<String>,
+    size: Option<String>,
+    side: Option<String>,
+    timestamp: Option<String>,
+    timestamp_ms: Option<i64>,
+    transaction_hash: Option<String>,
+    received_ts: i64,
+}
+
+fn parse_trade_timestamp_ms(ts: &Option<String>) -> Option<i64> {
+    let ts_str = ts.as_ref()?;
+    if let Ok(ms) = ts_str.parse::<i64>() {
+        return Some(ms);
+    }
+    DateTime::parse_from_rfc3339(ts_str)
+        .map(|dt| dt.timestamp_millis())
+        .ok()
+}
+
+fn build_trade_record_from_value(
+    value: &serde_json::Value,
+    venue: &str,
+    mapping: &HashMap<String, (String, String)>,
+) -> Option<PolymarketTradeRecord> {
+    let msg_type = value.get("type").and_then(|v| v.as_str());
+    let event_type = value.get("event_type").and_then(|v| v.as_str());
+    let trade_type = msg_type.or(event_type);
+    if trade_type != Some("last_trade_price")
+        && trade_type != Some("trade")
+        && trade_type != Some("trade_execution")
+    {
+        return None;
+    }
+
+    let payload = value.get("payload").unwrap_or(value);
+    let asset_id = payload
+        .get("asset_id")
+        .and_then(|v| v.as_str())
+        .or_else(|| value.get("asset_id").and_then(|v| v.as_str()))?
+        .to_string();
+
+    let (market_id, outcome_id) = mapping
+        .get(&asset_id)
+        .cloned()
+        .unwrap_or((String::new(), String::new()));
+
+    let event_type = payload
+        .get("event_type")
+        .and_then(|v| v.as_str())
+        .or(trade_type)
+        .unwrap_or("trade")
+        .to_string();
+
+    let price = payload
+        .get("price")
+        .and_then(|v| v.as_str())
+        .or_else(|| value.get("price").and_then(|v| v.as_str()))
+        .map(|s| s.to_string());
+    let size = payload
+        .get("size")
+        .and_then(|v| v.as_str())
+        .or_else(|| value.get("size").and_then(|v| v.as_str()))
+        .map(|s| s.to_string());
+    let side = payload
+        .get("side")
+        .and_then(|v| v.as_str())
+        .or_else(|| value.get("side").and_then(|v| v.as_str()))
+        .map(|s| s.to_string());
+    let timestamp = payload
+        .get("timestamp")
+        .and_then(|v| v.as_str())
+        .or_else(|| value.get("timestamp").and_then(|v| v.as_str()))
+        .map(|s| s.to_string());
+    let timestamp_ms = parse_trade_timestamp_ms(&timestamp);
+    let transaction_hash = payload
+        .get("transaction_hash")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+
+    Some(PolymarketTradeRecord {
+        venue: venue.to_string(),
+        market_id: if market_id.is_empty() { None } else { Some(market_id) },
+        outcome_id: if outcome_id.is_empty() { None } else { Some(outcome_id) },
+        asset_id,
+        event_type,
+        price,
+        size,
+        side,
+        timestamp,
+        timestamp_ms,
+        transaction_hash,
+        received_ts: Utc::now().timestamp_millis(),
+    })
+}
+
+fn trade_bucket(ts_ms: i64, bucket_minutes: u32) -> (String, String, String) {
+    let dt = DateTime::<Utc>::from_timestamp_millis(ts_ms)
+        .unwrap_or_else(|| Utc::now());
+    let date_str = dt.format("%Y-%m-%d").to_string();
+    let hour_str = dt.format("%H").to_string();
+    let minute = dt.minute();
+    let bucket_minute = (minute / bucket_minutes) * bucket_minutes;
+    let minute_str = format!("{:02}", bucket_minute);
+    (date_str, hour_str, minute_str)
+}
+
+fn write_trades_parquet(venue: &str, records: &[PolymarketTradeRecord]) -> Result<()> {
+    if records.is_empty() {
+        return Ok(());
+    }
+    let bucket_minutes = 5;
+    let ts_ms = records[0].received_ts;
+    let (date_str, hour_str, minute_str) = trade_bucket(ts_ms, bucket_minutes);
+
+    let dir = Path::new("data")
+        .join("trades")
+        .join(format!("venue={}", venue))
+        .join(format!("date={}", date_str))
+        .join(format!("hour={}", hour_str));
+    std::fs::create_dir_all(&dir)
+        .with_context(|| format!("Failed to create trade directory: {:?}", dir))?;
+
+    let file_prefix = format!("trades_{}T{}-{}", date_str, hour_str, minute_str);
+    let temp_file = dir.join(format!("{}.parquet.tmp", file_prefix));
+    let final_file = dir.join(format!("{}.parquet", file_prefix));
+
+    let ts_recv: Vec<i64> = records.iter().map(|r| r.received_ts).collect();
+    let venue_col: Vec<String> = records.iter().map(|r| r.venue.clone()).collect();
+    let market_id: Vec<Option<String>> = records.iter().map(|r| r.market_id.clone()).collect();
+    let outcome_id: Vec<Option<String>> = records.iter().map(|r| r.outcome_id.clone()).collect();
+    let asset_id: Vec<String> = records.iter().map(|r| r.asset_id.clone()).collect();
+    let event_type: Vec<String> = records.iter().map(|r| r.event_type.clone()).collect();
+    let price: Vec<Option<String>> = records.iter().map(|r| r.price.clone()).collect();
+    let size: Vec<Option<String>> = records.iter().map(|r| r.size.clone()).collect();
+    let side: Vec<Option<String>> = records.iter().map(|r| r.side.clone()).collect();
+    let timestamp: Vec<Option<String>> = records.iter().map(|r| r.timestamp.clone()).collect();
+    let timestamp_ms: Vec<Option<i64>> = records.iter().map(|r| r.timestamp_ms).collect();
+    let transaction_hash: Vec<Option<String>> =
+        records.iter().map(|r| r.transaction_hash.clone()).collect();
+
+    let df = DataFrame::new(vec![
+        Series::new("ts_recv", ts_recv),
+        Series::new("venue", venue_col),
+        Series::new("market_id", market_id),
+        Series::new("outcome_id", outcome_id),
+        Series::new("asset_id", asset_id),
+        Series::new("event_type", event_type),
+        Series::new("price", price),
+        Series::new("size", size),
+        Series::new("side", side),
+        Series::new("timestamp", timestamp),
+        Series::new("timestamp_ms", timestamp_ms),
+        Series::new("transaction_hash", transaction_hash),
+    ])
+    .context("Failed to create trade DataFrame")?;
+
+    df.lazy()
+        .sink_parquet(temp_file.clone(), ParquetWriteOptions::default())
+        .context("Failed to write trade Parquet file")?;
+
+    std::fs::rename(&temp_file, &final_file)
+        .with_context(|| format!("Failed to rename {:?} to {:?}", temp_file, final_file))?;
+
+    tracing::info!(
+        "Wrote {} trade rows to {:?}",
+        records.len(),
+        final_file
+    );
+
+    Ok(())
+}
+
+#[derive(Debug, Serialize)]
 struct PolymarketSubscribeMessage {
     #[serde(rename = "type")]
     message_type: String,  // "market" (lowercase)
@@ -173,6 +356,8 @@ pub struct PolymarketVenue {
     subscribed_markets: Arc<Mutex<HashMap<String, Vec<String>>>>, // market_id -> outcome_ids
     // Token ID (asset_id) -> (market_id, outcome_id) mapping
     token_to_market: Arc<Mutex<HashMap<String, (String, String)>>>,
+    trade_buffer: Arc<Mutex<Vec<PolymarketTradeRecord>>>,
+    trade_last_flush: Arc<Mutex<Instant>>,
 }
 
 impl PolymarketVenue {
@@ -191,6 +376,8 @@ impl PolymarketVenue {
             market_sequences: Arc::new(Mutex::new(HashMap::new())),
             subscribed_markets: Arc::new(Mutex::new(HashMap::new())),
             token_to_market: Arc::new(Mutex::new(HashMap::new())),
+            trade_buffer: Arc::new(Mutex::new(Vec::new())),
+            trade_last_flush: Arc::new(Mutex::new(Instant::now())),
         }
     }
 
@@ -537,10 +724,14 @@ impl Venue for PolymarketVenue {
         let market_sequences = self.market_sequences.clone();
         let token_to_market = self.token_to_market.clone();
         let venue_name = self.name.clone();
+        let trade_buffer = self.trade_buffer.clone();
+        let trade_last_flush = self.trade_last_flush.clone();
         
         tokio::spawn(async move {
             // Load token mapping on first message
             let mut mapping_loaded = false;
+            let mut trade_count: u64 = 0;
+            let mut last_trade_log = Instant::now();
             
             while let Some(msg) = receiver.next().await {
                 match msg {
@@ -711,13 +902,100 @@ impl Venue for PolymarketVenue {
                             }
                         }
                         
-                        // Try as trade event (ignore for now, but parse to avoid errors)
+                        // Try as trade event (fills/executions)
                         if !parsed_any {
-                            if let Ok(_trade) = serde_json::from_str::<PolymarketClobTradeEvent>(&text) {
-                                // Trade events don't contain order book data, skip
-                                tracing::debug!("Ignored trade event: asset_id={}", _trade.asset_id);
+                            if let Ok(trade) = serde_json::from_str::<PolymarketClobTradeEvent>(&text) {
+                                let (market_id, outcome_id) = {
+                                    let mapping = token_to_market.lock().await;
+                                    mapping.get(&trade.asset_id).cloned().unwrap_or((String::new(), String::new()))
+                                };
+                                let record = PolymarketTradeRecord {
+                                    venue: venue_name.clone(),
+                                    market_id: if market_id.is_empty() { None } else { Some(market_id) },
+                                    outcome_id: if outcome_id.is_empty() { None } else { Some(outcome_id) },
+                                    asset_id: trade.asset_id.clone(),
+                                    event_type: trade.event_type.clone(),
+                                    price: trade.price.clone(),
+                                    size: trade.size.clone(),
+                                    side: trade.side.clone(),
+                                    timestamp: trade.timestamp.clone(),
+                                    timestamp_ms: parse_trade_timestamp_ms(&trade.timestamp),
+                                    transaction_hash: trade.transaction_hash.clone(),
+                                    received_ts: Utc::now().timestamp_millis(),
+                                };
+                                {
+                                    let mut buffer = trade_buffer.lock().await;
+                                    buffer.push(record);
+                                    trade_count += 1;
+                                }
+
+                                let should_flush = {
+                                    let buffer = trade_buffer.lock().await;
+                                    let last_flush = trade_last_flush.lock().await;
+                                    buffer.len() >= 500 || last_flush.elapsed() >= Duration::from_secs(5)
+                                };
+
+                                if should_flush {
+                                    let records = {
+                                        let mut buffer = trade_buffer.lock().await;
+                                        let drained = buffer.drain(..).collect::<Vec<_>>();
+                                        drained
+                                    };
+                                    if !records.is_empty() {
+                                        if let Err(e) = write_trades_parquet(&venue_name, &records) {
+                                            tracing::warn!("Failed to write trades parquet: {}", e);
+                                        } else {
+                                            let mut last_flush = trade_last_flush.lock().await;
+                                            *last_flush = Instant::now();
+                                        }
+                                    }
+                                }
+                                tracing::debug!("Recorded trade event: asset_id={}", trade.asset_id);
                                 parsed_any = true;
                             }
+                        }
+
+                        if !parsed_any {
+                            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) {
+                                let mapping = token_to_market.lock().await;
+                                if let Some(record) = build_trade_record_from_value(&value, &venue_name, &mapping) {
+                                    {
+                                        let mut buffer = trade_buffer.lock().await;
+                                        buffer.push(record);
+                                        trade_count += 1;
+                                    }
+
+                                    let should_flush = {
+                                        let buffer = trade_buffer.lock().await;
+                                        let last_flush = trade_last_flush.lock().await;
+                                        buffer.len() >= 500 || last_flush.elapsed() >= Duration::from_secs(5)
+                                    };
+
+                                    if should_flush {
+                                        let records = {
+                                            let mut buffer = trade_buffer.lock().await;
+                                            buffer.drain(..).collect::<Vec<_>>()
+                                        };
+                                        if !records.is_empty() {
+                                            if let Err(e) = write_trades_parquet(&venue_name, &records) {
+                                                tracing::warn!("Failed to write trades parquet: {}", e);
+                                            } else {
+                                                let mut last_flush = trade_last_flush.lock().await;
+                                                *last_flush = Instant::now();
+                                            }
+                                        }
+                                    }
+
+                                    tracing::debug!("Recorded trade event from message type");
+                                    parsed_any = true;
+                                }
+                            }
+                        }
+
+                        if last_trade_log.elapsed() >= Duration::from_secs(60) {
+                            tracing::info!("Trade events seen in last 60s: {}", trade_count);
+                            trade_count = 0;
+                            last_trade_log = Instant::now();
                         }
                         
                         // Try as array of messages

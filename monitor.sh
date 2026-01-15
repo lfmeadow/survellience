@@ -64,6 +64,26 @@ else
 fi
 echo ""
 
+# 3.5 Trade Data (if available)
+echo "=== TRADE DATA ==="
+TRADE_DIR="data/trades/venue=$VENUE/date=$DATE"
+if [ -d "$TRADE_DIR" ]; then
+    TRADE_FILES=$(find "$TRADE_DIR" -name "*.parquet" -type f 2>/dev/null | wc -l)
+    if [ "$TRADE_FILES" -gt 0 ]; then
+        TOTAL_TRADE_SIZE=$(du -sh "$TRADE_DIR" 2>/dev/null | cut -f1)
+        echo "Trade parquet files: $TRADE_FILES ($TOTAL_TRADE_SIZE)"
+        LAST_TRADE_FILE=$(find "$TRADE_DIR" -name "*.parquet" -type f -printf '%T@ %p\n' 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2-)
+        if [ -n "$LAST_TRADE_FILE" ]; then
+            echo "Latest trade file: ${LAST_TRADE_FILE#${TRADE_DIR}/}"
+        fi
+    else
+        echo "No trade parquet files found"
+    fi
+else
+    echo "No trade directory found"
+fi
+echo ""
+
 # 3. Market Universe
 echo "=== MARKET UNIVERSE ==="
 # Use UTC date for universe file to match file storage

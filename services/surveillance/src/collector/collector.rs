@@ -87,6 +87,8 @@ impl Collector {
                         debug!("Received update: market={}, outcome={}, bids={}, asks={}", 
                             update.market_id, update.outcome_id, update.bids.len(), update.asks.len());
                         
+                        metrics.record_message_received().await;
+
                         // Record update processed and check for sequence gaps
                         metrics.record_update_processed(
                             &update.market_id,

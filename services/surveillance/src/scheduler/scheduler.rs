@@ -3,6 +3,7 @@ use crate::scheduler::scoring::{score_markets, MarketStats};
 use crate::venue::MarketInfo;
 use anyhow::{Context, Result};
 use chrono::Utc;
+use polars::prelude::*;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use tracing::{debug, info, warn};
@@ -12,6 +13,7 @@ pub struct Scheduler {
     last_rotation: Option<std::time::Instant>,
     current_hot: HashSet<(String, String)>,
     current_warm: HashSet<(String, String)>,
+    rotation_cursor: usize,
 }
 
 impl Scheduler {
@@ -21,6 +23,7 @@ impl Scheduler {
             last_rotation: None,
             current_hot: HashSet::new(),
             current_warm: HashSet::new(),
+            rotation_cursor: 0,
         }
     }
 
@@ -42,39 +45,76 @@ impl Scheduler {
         // Score markets
         let scores = score_markets(&markets, stats_cache.as_ref());
 
-        // Select HOT markets (top N by score)
-        let hot_count = venue_config.hot_count.min(venue_config.max_subs);
+        // Select HOT markets (top 10% by score, minimum 1)
+        let hot_count = std::cmp::max(1, venue_config.max_subs / 10);
         let mut new_hot = HashSet::new();
         let mut new_warm = HashSet::new();
 
-        for (idx, score) in scores.iter().enumerate() {
-            if let Some(market) = markets.iter().find(|m| m.market_id == score.market_id) {
-                // For Polymarket, use token_ids for subscriptions (CLOB WebSocket requires token IDs)
-                // For other venues, use market_id/outcome_id pairs
-                if venue_name == "polymarket" {
-                    if !market.token_ids.is_empty() {
-                        // Polymarket: subscribe to all token_ids for this market
-                        for token_id in &market.token_ids {
-                            if idx < hot_count {
-                                new_hot.insert((token_id.clone(), "".to_string())); // outcome_id not used for token-based subs
-                            } else if new_hot.len() + new_warm.len() < venue_config.max_subs {
-                                new_warm.insert((token_id.clone(), "".to_string()));
-                            }
-                        }
-                    } else {
-                        // Skip markets without token_ids (they can't be subscribed to via CLOB WebSocket)
-                        debug!("Skipping market {} - no token_ids available", market.market_id);
-                    }
-                } else {
-                    // Other venues: use market_id/outcome_id pairs
-                    for outcome_id in &market.outcome_ids {
-                        if idx < hot_count {
-                            new_hot.insert((score.market_id.clone(), outcome_id.clone()));
-                        } else if new_hot.len() + new_warm.len() < venue_config.max_subs {
-                            new_warm.insert((score.market_id.clone(), outcome_id.clone()));
-                        }
-                    }
+        let mut scored_markets: Vec<&MarketInfo> = scores
+            .iter()
+            .filter_map(|score| markets.iter().find(|m| m.market_id == score.market_id))
+            .collect();
+
+        let hot_markets: Vec<&MarketInfo> = scored_markets.drain(0..std::cmp::min(hot_count, scored_markets.len())).collect();
+        let remaining_markets = scored_markets;
+
+        // Rotate warm markets by advancing a cursor through the remaining list.
+        let warm_capacity = venue_config.max_subs.saturating_sub(hot_count);
+        let remaining_len = remaining_markets.len();
+        let mut warm_selected: Vec<&MarketInfo> = Vec::new();
+        if remaining_len > 0 && warm_capacity > 0 {
+            let start = self.rotation_cursor % remaining_len;
+            for i in 0..remaining_len {
+                if warm_selected.len() >= warm_capacity {
+                    break;
                 }
+                let idx = (start + i) % remaining_len;
+                warm_selected.push(remaining_markets[idx]);
+            }
+            self.rotation_cursor = (start + warm_selected.len()) % remaining_len;
+        }
+
+        let add_polymarket_tokens = |set: &mut HashSet<(String, String)>, market: &MarketInfo, max_subs: usize| {
+            if market.token_ids.is_empty() {
+                debug!("Skipping market {} - no token_ids available", market.market_id);
+                return;
+            }
+            for token_id in &market.token_ids {
+                if set.len() >= max_subs {
+                    break;
+                }
+                set.insert((token_id.clone(), "".to_string()));
+            }
+        };
+
+        let add_standard_market = |set: &mut HashSet<(String, String)>, market: &MarketInfo, max_subs: usize| {
+            for outcome_id in &market.outcome_ids {
+                if set.len() >= max_subs {
+                    break;
+                }
+                set.insert((market.market_id.clone(), outcome_id.clone()));
+            }
+        };
+
+        if venue_name == "polymarket" {
+            for market in &hot_markets {
+                add_polymarket_tokens(&mut new_hot, market, hot_count);
+            }
+            for market in &warm_selected {
+                if new_hot.len() + new_warm.len() >= venue_config.max_subs {
+                    break;
+                }
+                add_polymarket_tokens(&mut new_warm, market, venue_config.max_subs - new_hot.len());
+            }
+        } else {
+            for market in &hot_markets {
+                add_standard_market(&mut new_hot, market, hot_count);
+            }
+            for market in &warm_selected {
+                if new_hot.len() + new_warm.len() >= venue_config.max_subs {
+                    break;
+                }
+                add_standard_market(&mut new_warm, market, venue_config.max_subs - new_hot.len());
             }
         }
 
@@ -172,9 +212,63 @@ impl Scheduler {
             return Ok(HashMap::new());
         }
 
-        // TODO: Load from Parquet using Polars
-        // For now, return empty
-        Ok(HashMap::new())
+        let file = std::fs::File::open(&stats_path)
+            .with_context(|| format!("Failed to open stats cache: {:?}", stats_path))?;
+        let df = ParquetReader::new(file)
+            .finish()
+            .context("Failed to read stats cache parquet")?;
+
+        // Aggregate per market_id (stats cache is per market_id/outcome_id)
+        let aggregated = df
+            .lazy()
+            .group_by([col("market_id")])
+            .agg([
+                col("avg_depth").mean().alias("avg_depth"),
+                col("avg_spread").mean().alias("avg_spread"),
+                col("update_count").sum().alias("update_count"),
+            ])
+            .collect()
+            .context("Failed to aggregate stats cache")?;
+
+        let market_id_col = aggregated
+            .column("market_id")?
+            .str()
+            .context("market_id column is not utf8")?;
+        let avg_depth_col = aggregated
+            .column("avg_depth")?
+            .f64()
+            .context("avg_depth column is not f64")?;
+        let avg_spread_col = aggregated
+            .column("avg_spread")?
+            .f64()
+            .context("avg_spread column is not f64")?;
+        let update_count_col = aggregated
+            .column("update_count")?
+            .i64()
+            .context("update_count column is not i64")?;
+
+        let mut stats_map = HashMap::new();
+        for idx in 0..aggregated.height() {
+            let market_id = market_id_col.get(idx).unwrap_or("").to_string();
+            if market_id.is_empty() {
+                continue;
+            }
+            let avg_depth = avg_depth_col.get(idx).unwrap_or(0.0);
+            let avg_spread = avg_spread_col.get(idx).unwrap_or(0.0);
+            let update_count = update_count_col.get(idx).unwrap_or(0).max(0) as usize;
+
+            stats_map.insert(
+                market_id.clone(),
+                MarketStats {
+                    market_id,
+                    avg_depth,
+                    avg_spread,
+                    update_count,
+                },
+            );
+        }
+
+        Ok(stats_map)
     }
 }
 

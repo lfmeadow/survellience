@@ -121,9 +121,24 @@ impl WebSocketMetrics {
         rate_tracker.increment();
     }
 
+    fn decrement_queue_depth(&self) {
+        let mut current = self.queue_depth.load(Ordering::Relaxed);
+        while current > 0 {
+            match self.queue_depth.compare_exchange(
+                current,
+                current - 1,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => break,
+                Err(val) => current = val,
+            }
+        }
+    }
+
     pub async fn record_update_processed(&self, market_id: &str, outcome_id: &str, sequence: i64) {
         self.total_updates_processed.fetch_add(1, Ordering::Relaxed);
-        self.queue_depth.fetch_sub(1, Ordering::Relaxed);
+        self.decrement_queue_depth();
         
         let mut rate_tracker = self.updates_per_second.lock().await;
         rate_tracker.increment();
