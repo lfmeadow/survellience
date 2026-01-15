@@ -63,12 +63,31 @@ data/orderbook_snapshots/venue={venue}/date={YYYY-MM-DD}/hour={HH}/snapshots_{ti
 Analyze collected data:
 
 ```bash
-cargo run --bin surveillance_miner [config_path] [venue] [date]
+cargo run --bin surveillance_miner -- mine --venue polymarket --date 2026-01-14
 ```
 
 Produces statistics at:
 ```
 data/stats/venue={venue}/date={YYYY-MM-DD}/stats.parquet
+```
+
+### MM Viability Report
+
+Estimate passive market-making viability:
+
+```bash
+cargo run -p surveillance --bin surveillance_miner -- mm-viability \
+  --venue polymarket \
+  --date 2026-01-14 \
+  --hours all \
+  --fee-estimate 0.0 \
+  --top 20 \
+  --write-report true
+```
+
+Writes report to:
+```
+data/reports/mm_viability/venue={venue}/date={YYYY-MM-DD}/mm_viability.parquet
 ```
 
 ## Mock Mode
