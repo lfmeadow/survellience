@@ -87,42 +87,84 @@ else
 fi
 echo ""
 
-# Check logs for errors (systemd journal or log file)
+# Check logs for errors and activity (systemd journal or log file)
 echo "=== LOGS & ERRORS ==="
 RECENT_ERRORS=0
+RECENT_SUBSCRIPTIONS=0
+RECENT_ROTATIONS=0
+RECENT_WRITES=0
 
 # Check systemd journal if service is running via systemd
 if [ "$COLLECTOR_METHOD" = "systemd" ]; then
     if command -v journalctl > /dev/null 2>&1; then
-        # Check for errors in last 100 lines
-        RECENT_ERRORS=$(sudo journalctl -u surveillance-collect -n 100 --no-pager 2>/dev/null | grep -iE "error|failed|disconnect|closed|warning" | wc -l)
+        # Check for errors in last 200 lines (avoid metrics counters)
+        RECENT_ERRORS=$(sudo journalctl -u surveillance-collect -n 200 --no-pager 2>/dev/null | grep -iE "error|failed|disconnect|closed|panic|warn" | grep -ivE "errors=|markets_with_issues=|gaps=|out_of_order=" | wc -l)
         if [ "$RECENT_ERRORS" -gt 0 ]; then
-            echo "⚠️  Recent errors in systemd journal: $RECENT_ERRORS (last 100 lines)"
+            echo "⚠️  Recent errors in systemd journal: $RECENT_ERRORS (last 200 lines)"
             echo "   Recent errors:"
-            sudo journalctl -u surveillance-collect -n 100 --no-pager 2>/dev/null | grep -iE "error|failed|disconnect|closed" | tail -3 | sed 's/^/   /'
+            sudo journalctl -u surveillance-collect -n 200 --no-pager 2>/dev/null | grep -iE "error|failed|disconnect|closed|panic|warn" | grep -ivE "errors=|markets_with_issues=|gaps=|out_of_order=" | tail -3 | sed 's/^/   /'
         else
             echo "✅ No recent errors in systemd journal"
         fi
+
+        # Activity checks
+        RECENT_SUBSCRIPTIONS=$(sudo journalctl -u surveillance-collect -n 200 --no-pager 2>/dev/null | grep -iE "subscription update|subscribing to" | wc -l)
+        RECENT_ROTATIONS=$(sudo journalctl -u surveillance-collect -n 200 --no-pager 2>/dev/null | grep -iE "rotating subscriptions" | wc -l)
+        RECENT_WRITES=$(sudo journalctl -u surveillance-collect -n 200 --no-pager 2>/dev/null | grep -iE "Wrote .*snapshots_.*parquet" | wc -l)
+        RECENT_METRICS=$(sudo journalctl -u surveillance-collect -n 200 --no-pager 2>/dev/null | grep -iE "WebSocket metrics" | wc -l)
+        RECENT_TRADES=$(sudo journalctl -u surveillance-collect -n 200 --no-pager 2>/dev/null | grep -iE "Trade events seen in last 60s" | wc -l)
+        echo "✅ Recent activity (last 200 lines): subscriptions=$RECENT_SUBSCRIPTIONS, rotations=$RECENT_ROTATIONS, writes=$RECENT_WRITES"
+        printf "   %-16s %-8s\n" "topic" "count"
+        printf "   %-16s %-8s\n" "metrics" "$RECENT_METRICS"
+        printf "   %-16s %-8s\n" "subscriptions" "$RECENT_SUBSCRIPTIONS"
+        printf "   %-16s %-8s\n" "rotations" "$RECENT_ROTATIONS"
+        printf "   %-16s %-8s\n" "writes" "$RECENT_WRITES"
+        printf "   %-16s %-8s\n" "trade_events" "$RECENT_TRADES"
         
         # Check last activity
         LAST_LOG=$(sudo journalctl -u surveillance-collect -n 1 --no-pager -o short 2>/dev/null | tail -1)
         if [ -n "$LAST_LOG" ]; then
             echo "   Last log entry: ${LAST_LOG:0:80}..."
         fi
+
+        # Latest WebSocket metrics
+        LAST_METRICS=$(sudo journalctl -u surveillance-collect -n 200 --no-pager 2>/dev/null | grep "WebSocket metrics" | tail -1)
+        if [ -n "$LAST_METRICS" ]; then
+            echo "   Latest WebSocket metrics: ${LAST_METRICS#*: }"
+        fi
     fi
 fi
 
 # Check collector.log if it exists (fallback for non-systemd)
 if [ -f collector.log ]; then
-    LOG_ERRORS=$(tail -100 collector.log 2>/dev/null | grep -iE "error|failed|disconnect|closed" | wc -l)
+    LOG_ERRORS=$(tail -100 collector.log 2>/dev/null | grep -iE "error|failed|disconnect|closed|panic|warn" | grep -ivE "errors=|markets_with_issues=|gaps=|out_of_order=" | wc -l)
     if [ "$LOG_ERRORS" -gt 0 ]; then
         if [ "$COLLECTOR_METHOD" != "systemd" ]; then
             echo "⚠️  Recent errors in collector.log: $LOG_ERRORS"
             echo "   Last errors:"
-            tail -100 collector.log 2>/dev/null | grep -iE "error|failed|disconnect|closed" | tail -3 | sed 's/^/   /'
+            tail -100 collector.log 2>/dev/null | grep -iE "error|failed|disconnect|closed|panic|warn" | grep -ivE "errors=|markets_with_issues=|gaps=|out_of_order=" | tail -3 | sed 's/^/   /'
         fi
     elif [ "$COLLECTOR_METHOD" != "systemd" ]; then
         echo "✅ No recent errors in collector.log"
+    fi
+
+    if [ "$COLLECTOR_METHOD" != "systemd" ]; then
+        LOG_SUBSCRIPTIONS=$(tail -200 collector.log 2>/dev/null | grep -iE "subscription update|subscribing to" | wc -l)
+        LOG_ROTATIONS=$(tail -200 collector.log 2>/dev/null | grep -iE "rotating subscriptions" | wc -l)
+        LOG_WRITES=$(tail -200 collector.log 2>/dev/null | grep -iE "Wrote .*snapshots_.*parquet" | wc -l)
+        LOG_METRICS=$(tail -200 collector.log 2>/dev/null | grep -iE "WebSocket metrics" | wc -l)
+        LOG_TRADES=$(tail -200 collector.log 2>/dev/null | grep -iE "Trade events seen in last 60s" | wc -l)
+        echo "✅ Recent activity (collector.log): subscriptions=$LOG_SUBSCRIPTIONS, rotations=$LOG_ROTATIONS, writes=$LOG_WRITES"
+        printf "   %-16s %-8s\n" "topic" "count"
+        printf "   %-16s %-8s\n" "metrics" "$LOG_METRICS"
+        printf "   %-16s %-8s\n" "subscriptions" "$LOG_SUBSCRIPTIONS"
+        printf "   %-16s %-8s\n" "rotations" "$LOG_ROTATIONS"
+        printf "   %-16s %-8s\n" "writes" "$LOG_WRITES"
+        printf "   %-16s %-8s\n" "trade_events" "$LOG_TRADES"
+        LAST_METRICS=$(tail -200 collector.log 2>/dev/null | grep "WebSocket metrics" | tail -1)
+        if [ -n "$LAST_METRICS" ]; then
+            echo "   Latest WebSocket metrics: ${LAST_METRICS#*: }"
+        fi
     fi
 fi
 echo ""

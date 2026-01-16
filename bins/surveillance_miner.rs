@@ -32,6 +32,8 @@ enum Commands {
         hours: String,
         #[arg(long, default_value_t = 0.0)]
         fee_estimate: f64,
+        #[arg(long, default_value_t = 1000)]
+        min_rows: usize,
         #[arg(long, default_value_t = 20)]
         top: usize,
         #[arg(long, default_value_t = true, action = ArgAction::Set)]
@@ -58,6 +60,7 @@ async fn main() -> Result<()> {
             date,
             hours,
             fee_estimate,
+            min_rows,
             top,
             write_report,
         } => {
@@ -67,6 +70,7 @@ async fn main() -> Result<()> {
                 &date,
                 &hours,
                 fee_estimate,
+                min_rows,
                 top,
                 write_report,
             )?;

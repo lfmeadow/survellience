@@ -16,12 +16,20 @@ echo ""
 
 # 1. System Health
 echo "=== SYSTEM HEALTH ==="
-if pgrep -f surveillance_collect > /dev/null; then
-    PID=$(pgrep -f surveillance_collect)
-    echo "✅ Collector: RUNNING (PID: $PID)"
-    # Get memory usage
+if command -v systemctl > /dev/null 2>&1 && systemctl is-active --quiet surveillance-collect 2>/dev/null; then
+    PID=$(systemctl show -p MainPID --value surveillance-collect 2>/dev/null)
+    echo "✅ Collector: RUNNING (systemd service)"
+    echo "   PID: $PID"
     if command -v ps > /dev/null; then
-        MEM=$(ps -p $PID -o rss= 2>/dev/null | awk '{printf "%.1f MB", $1/1024}')
+        MEM=$(ps -p "$PID" -o rss= 2>/dev/null | awk '{printf "%.1f MB", $1/1024}')
+        echo "   Memory: $MEM"
+    fi
+elif pgrep -f surveillance_collect > /dev/null; then
+    PID=$(pgrep -f surveillance_collect | head -1)
+    echo "✅ Collector: RUNNING (direct process)"
+    echo "   PID: $PID"
+    if command -v ps > /dev/null; then
+        MEM=$(ps -p "$PID" -o rss= 2>/dev/null | awk '{printf "%.1f MB", $1/1024}')
         echo "   Memory: $MEM"
     fi
 else
@@ -237,6 +245,17 @@ if command -v systemctl > /dev/null 2>&1 && systemctl is-active --quiet surveill
         if [ "$ERROR_COUNT" -gt 0 ]; then
             echo ""
             echo "⚠️  Recent errors/warnings in journal: $ERROR_COUNT (last 100 lines)"
+        fi
+
+        # Activity summary from journal
+        SUB_COUNT=$(sudo journalctl -u surveillance-collect -n 200 --no-pager 2>/dev/null | grep -iE "subscription update|subscribing to" | wc -l)
+        ROT_COUNT=$(sudo journalctl -u surveillance-collect -n 200 --no-pager 2>/dev/null | grep -iE "rotating subscriptions" | wc -l)
+        WRITE_COUNT=$(sudo journalctl -u surveillance-collect -n 200 --no-pager 2>/dev/null | grep -iE "Wrote .*snapshots_.*parquet" | wc -l)
+        echo ""
+        echo "Activity (last 200 lines): subscriptions=$SUB_COUNT, rotations=$ROT_COUNT, writes=$WRITE_COUNT"
+        LAST_METRICS=$(sudo journalctl -u surveillance-collect -n 200 --no-pager 2>/dev/null | grep "WebSocket metrics" | tail -1)
+        if [ -n "$LAST_METRICS" ]; then
+            echo "Latest WebSocket metrics: ${LAST_METRICS#*: }"
         fi
     else
         echo "journalctl not available"

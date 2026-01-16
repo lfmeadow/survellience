@@ -14,6 +14,7 @@ pub struct MmViabilityConfig {
 }
 
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 struct GroupMetrics {
     venue: String,
     market_id: String,
@@ -46,6 +47,7 @@ pub fn run_mm_viability(
     date: &str,
     hours: &str,
     fee_estimate: f64,
+    min_rows: usize,
     top: usize,
     write_report: bool,
 ) -> Result<()> {
@@ -53,7 +55,7 @@ pub fn run_mm_viability(
         horizons_ms: vec![1000, 5000, 30000, 120000],
         fee_estimate,
         eps: 1e-9,
-        min_rows: 1000,
+        min_rows,
         max_mid_nan_frac: 0.2,
     };
 

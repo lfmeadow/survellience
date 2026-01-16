@@ -62,11 +62,13 @@ struct PolymarketEvent {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 struct PolymarketMarketResponse {
     data: Vec<PolymarketMarket>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 struct PolymarketOutcome {
     id: String,
     price: f64,
@@ -74,6 +76,7 @@ struct PolymarketOutcome {
 
 // Legacy format (not used by CLOB WebSocket, kept for compatibility)
 #[derive(Debug, Serialize, Deserialize)]
+#[allow(dead_code)]
 struct PolymarketOrderBookMessage {
     #[serde(rename = "type")]
     message_type: String,
@@ -342,14 +345,18 @@ struct PolymarketSubscribeMessage {
 
 pub struct PolymarketVenue {
     name: String,
+    #[allow(dead_code)]
     api_key: String,
+    #[allow(dead_code)]
     api_secret: String,
     ws_url: String,
     rest_url: String,
     connected: Arc<AtomicBool>,
+    #[allow(dead_code)]
     ws_stream: Arc<Mutex<Option<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>>>>,
     ws_sender: Arc<Mutex<Option<futures::stream::SplitSink<WebSocketStream<MaybeTlsStream<tokio::net::TcpStream>>, Message>>>>,
     message_queue: Arc<Mutex<VecDeque<OrderBookUpdate>>>,
+    #[allow(dead_code)]
     sequence: Arc<AtomicU64>,
     // Per-market/outcome sequence counters for gap detection
     market_sequences: Arc<Mutex<HashMap<(String, String), AtomicU64>>>,
@@ -382,6 +389,7 @@ impl PolymarketVenue {
     }
 
     /// Load token_id -> (market_id, outcome_id) mapping from universe file
+    #[allow(dead_code)]
     async fn load_token_mapping(&self, config: &crate::config::Config) -> Result<()> {
         use chrono::Utc;
         let today = Utc::now().date_naive();
@@ -422,6 +430,7 @@ impl PolymarketVenue {
     }
 
 
+    #[allow(dead_code)]
     fn parse_order_book_message(&self, msg: &str) -> Result<Option<OrderBookUpdate>> {
         let parsed: PolymarketOrderBookMessage = serde_json::from_str(msg)
             .context("Failed to parse Polymarket message")?;

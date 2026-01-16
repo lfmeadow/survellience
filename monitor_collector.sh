@@ -45,15 +45,22 @@ log_alert() {
 }
 
 check_collector_running() {
-    # Check if collector process is running
+    # Prefer systemd if service exists
+    if command -v systemctl > /dev/null 2>&1 && systemctl is-active --quiet surveillance-collect 2>/dev/null; then
+        return 0
+    fi
+    # Fallback to direct process check
     if pgrep -f "surveillance_collect.*config" > /dev/null 2>&1; then
         return 0
-    else
-        return 1
     fi
+    return 1
 }
 
 get_collector_pid() {
+    if command -v systemctl > /dev/null 2>&1 && systemctl is-active --quiet surveillance-collect 2>/dev/null; then
+        systemctl show -p MainPID --value surveillance-collect 2>/dev/null || echo ""
+        return
+    fi
     pgrep -f "surveillance_collect.*config" | head -1 || echo ""
 }
 

@@ -15,6 +15,7 @@ use tracing::{debug, info, warn};
 pub struct Collector {
     config: Arc<Config>,
     venue_name: String,
+    #[allow(dead_code)]
     writer: Arc<ParquetWriter>,
     scheduler: Arc<Scheduler>,
     book_store: Arc<Mutex<BookStore>>,
@@ -61,6 +62,19 @@ impl Collector {
 
     pub async fn run(&mut self) -> Result<()> {
         info!("Starting collector for venue: {}", self.venue_name);
+        if let Some(venue_config) = self.config.get_venue_config(&self.venue_name) {
+            info!(
+                "Collector config: data_dir={}, max_subs={}, rotation_period_secs={}, snapshot_hot_ms={}, snapshot_warm_ms={}, churn_limit_per_min={}",
+                self.config.data_dir,
+                venue_config.max_subs,
+                venue_config.rotation_period_secs,
+                venue_config.snapshot_interval_ms_hot,
+                venue_config.snapshot_interval_ms_warm,
+                venue_config.subscription_churn_limit_per_minute,
+            );
+        } else {
+            warn!("Collector config: venue_config not found for {}", self.venue_name);
+        }
 
         // Connect WebSocket
         {

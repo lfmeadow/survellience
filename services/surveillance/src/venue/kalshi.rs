@@ -12,6 +12,7 @@ use std::sync::Arc;
 /// - `api_secret`: RSA private key in PEM format (full content or path)
 /// 
 /// See KALSHI_INTEGRATION.md for details on obtaining credentials.
+#[allow(dead_code)]
 pub struct KalshiVenue {
     name: String,
     /// Kalshi Access Key ID
