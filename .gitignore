@@ -41,6 +41,8 @@ config/secrets.toml
 /tmp/
 
 # Build artifacts
+/target/
+bin/
 *.o
 *.so
 *.dylib
