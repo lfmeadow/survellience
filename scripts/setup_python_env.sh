@@ -4,7 +4,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VENV_DIR="${SCRIPT_DIR}/venv"
+ROOT_DIR="$(dirname "$SCRIPT_DIR")"
+VENV_DIR="${ROOT_DIR}/venv"
 REQUIREMENTS_FILE="${SCRIPT_DIR}/requirements.txt"
 
 echo "Setting up Python virtual environment..."
@@ -55,7 +56,7 @@ echo ""
 echo "✅ Python virtual environment setup complete!"
 echo ""
 echo "To activate the virtual environment, run:"
-echo "  source venv/bin/activate"
+echo "  source ../venv/bin/activate"
 echo ""
 echo "To deactivate, run:"
 echo "  deactivate"

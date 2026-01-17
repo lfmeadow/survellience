@@ -3,6 +3,7 @@
 # Updated to support systemd service and current system state
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 cd "$SCRIPT_DIR" || exit 1
 
 echo "=== Surveillance System Health Check ==="
@@ -52,12 +53,12 @@ echo ""
 
 # Check recent Parquet files
 echo "=== DATA COLLECTION ==="
-RECENT_FILES=$(find data/orderbook_snapshots -name "*.parquet" -type f -mmin -10 2>/dev/null | wc -l)
+RECENT_FILES=$(find "${ROOT_DIR}/data/orderbook_snapshots" -name "*.parquet" -type f -mmin -10 2>/dev/null | wc -l)
 if [ "$RECENT_FILES" -gt 0 ]; then
     echo "✅ Recent data files: $RECENT_FILES files in last 10 minutes"
     
     # Check most recent file
-    MOST_RECENT=$(find data/orderbook_snapshots -name "*.parquet" -type f -printf '%T@ %p\n' 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2-)
+    MOST_RECENT=$(find "${ROOT_DIR}/data/orderbook_snapshots" -name "*.parquet" -type f -printf '%T@ %p\n' 2>/dev/null | sort -n | tail -1 | cut -d' ' -f2-)
     if [ -n "$MOST_RECENT" ]; then
         FILE_AGE=$(find "$MOST_RECENT" -printf '%T@' 2>/dev/null)
         CURRENT_TIME=$(date +%s)
@@ -74,16 +75,16 @@ else
 fi
 
 # Disk space and file counts
-if [ -d data/orderbook_snapshots ]; then
-    DISK_USAGE=$(du -sh data/orderbook_snapshots 2>/dev/null | cut -f1)
-    TOTAL_FILES=$(find data/orderbook_snapshots -name "*.parquet" -type f 2>/dev/null | wc -l)
-    TODAY_FILES=$(find data/orderbook_snapshots -name "*.parquet" -type f -newermt "$(date +%Y-%m-%d)" 2>/dev/null | wc -l)
+if [ -d "${ROOT_DIR}/data/orderbook_snapshots" ]; then
+    DISK_USAGE=$(du -sh "${ROOT_DIR}/data/orderbook_snapshots" 2>/dev/null | cut -f1)
+    TOTAL_FILES=$(find "${ROOT_DIR}/data/orderbook_snapshots" -name "*.parquet" -type f 2>/dev/null | wc -l)
+    TODAY_FILES=$(find "${ROOT_DIR}/data/orderbook_snapshots" -name "*.parquet" -type f -newermt "$(date +%Y-%m-%d)" 2>/dev/null | wc -l)
     
     echo "📊 Disk usage: $DISK_USAGE"
     echo "📁 Total Parquet files: $TOTAL_FILES"
     echo "📅 Files today: $TODAY_FILES"
 else
-    echo "⚠️  Data directory not found: data/orderbook_snapshots"
+    echo "⚠️  Data directory not found: ${ROOT_DIR}/data/orderbook_snapshots"
 fi
 echo ""
 
@@ -172,21 +173,21 @@ echo ""
 # Check binaries
 echo "=== BINARIES ==="
 BINARY_COUNT=0
-if [ -f target/release/surveillance_collect ]; then
+if [ -f "${ROOT_DIR}/bin/surveillance_collect" ]; then
     echo "✅ Collector binary: EXISTS"
     BINARY_COUNT=$((BINARY_COUNT + 1))
 else
     echo "⚠️  Collector binary: NOT FOUND (run: cargo build --release)"
 fi
 
-if [ -f target/release/surveillance_scanner ]; then
+if [ -f "${ROOT_DIR}/bin/surveillance_scanner" ]; then
     echo "✅ Scanner binary: EXISTS"
     BINARY_COUNT=$((BINARY_COUNT + 1))
 else
     echo "⚠️  Scanner binary: NOT FOUND (run: cargo build --release)"
 fi
 
-if [ -f target/release/surveillance_miner ]; then
+if [ -f "${ROOT_DIR}/bin/surveillance_miner" ]; then
     echo "✅ Miner binary: EXISTS"
     BINARY_COUNT=$((BINARY_COUNT + 1))
 else
@@ -223,7 +224,7 @@ fi
 # Check universe file (for today)
 echo "=== MARKET UNIVERSE ==="
 TODAY=$(date -u +%Y-%m-%d)
-UNIVERSE_FILE="data/metadata/venue=polymarket/date=${TODAY}/universe.jsonl"
+UNIVERSE_FILE="${ROOT_DIR}/data/metadata/venue=polymarket/date=${TODAY}/universe.jsonl"
 if [ -f "$UNIVERSE_FILE" ]; then
     MARKET_COUNT=$(wc -l < "$UNIVERSE_FILE" 2>/dev/null || echo "0")
     echo "✅ Universe file exists for today ($TODAY): $MARKET_COUNT markets"

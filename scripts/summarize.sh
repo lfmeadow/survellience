@@ -3,6 +3,8 @@
 
 set -e
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 VENUE="${1:-polymarket}"
 DATE="${2:-$(date +%Y-%m-%d)}"
 
@@ -21,7 +23,7 @@ fi
 echo ""
 
 # Show stats cache contents
-STATS_FILE="data/stats/venue=$VENUE/date=$DATE/stats.csv"
+STATS_FILE="${ROOT_DIR}/data/stats/venue=$VENUE/date=$DATE/stats.csv"
 if [ -f "$STATS_FILE" ]; then
     echo "=== Statistics Cache Contents ==="
     if command -v column > /dev/null; then
@@ -39,7 +41,7 @@ fi
 
 # Show file listing
 echo "=== Data Files ==="
-SNAPSHOT_DIR="data/orderbook_snapshots/venue=$VENUE/date=$DATE"
+SNAPSHOT_DIR="${ROOT_DIR}/data/orderbook_snapshots/venue=$VENUE/date=$DATE"
 if [ -d "$SNAPSHOT_DIR" ]; then
     echo "Parquet files:"
     find "$SNAPSHOT_DIR" -name "*.parquet" -type f -exec ls -lh {} \; | \

@@ -15,8 +15,9 @@ set -euo pipefail
 
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-COLLECTOR_BINARY="${SCRIPT_DIR}/target/release/surveillance_collect"
-CONFIG_FILE="${SCRIPT_DIR}/config/surveillance.toml"
+ROOT_DIR="$(dirname "$SCRIPT_DIR")"
+COLLECTOR_BINARY="${ROOT_DIR}/bin/surveillance_collect"
+CONFIG_FILE="${ROOT_DIR}/config/surveillance.toml"
 LOG_FILE="${SCRIPT_DIR}/monitor.log"
 ALERT_LOG="${SCRIPT_DIR}/alerts.log"
 CHECK_INTERVAL=60  # seconds
@@ -147,7 +148,7 @@ send_recovery_notification() {
 
 check_data_activity() {
     # Check if data files are being created (additional health check)
-    local recent_files=$(find "${SCRIPT_DIR}/data/orderbook_snapshots" -name "*.parquet" -type f -mmin -10 2>/dev/null | wc -l)
+    local recent_files=$(find "${ROOT_DIR}/data/orderbook_snapshots" -name "*.parquet" -type f -mmin -10 2>/dev/null | wc -l)
     echo "$recent_files"
 }
 

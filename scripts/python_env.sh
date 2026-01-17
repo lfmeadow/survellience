@@ -3,7 +3,8 @@
 # Usage: source python_env.sh
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-VENV_DIR="${SCRIPT_DIR}/venv"
+ROOT_DIR="$(dirname "$SCRIPT_DIR")"
+VENV_DIR="${ROOT_DIR}/venv"
 
 if [ -d "${VENV_DIR}/bin" ]; then
     source "${VENV_DIR}/bin/activate"

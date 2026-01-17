@@ -1,9 +1,11 @@
 #!/bin/bash
 # Monitor Parquet files for surveillance system
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 VENUE="${1:-polymarket}"
 DATE="${2:-$(date +%Y-%m-%d)}"
-SNAPSHOT_DIR="data/orderbook_snapshots/venue=$VENUE/date=$DATE"
+SNAPSHOT_DIR="${ROOT_DIR}/data/orderbook_snapshots/venue=$VENUE/date=$DATE"
 
 echo "=========================================="
 echo "  Parquet File Monitor"

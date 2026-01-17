@@ -2,4 +2,5 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-exec env RUST_LOG=info "${SCRIPT_DIR}/target/release/surveillance_scanner" "${SCRIPT_DIR}/config/surveillance.toml"
+ROOT_DIR="$(dirname "$SCRIPT_DIR")"
+exec env RUST_LOG=info "${ROOT_DIR}/bin/surveillance_scanner" "${ROOT_DIR}/config/surveillance.toml"
