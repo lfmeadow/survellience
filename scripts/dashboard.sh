@@ -10,7 +10,8 @@ DATE="${2:-}"
 # Helper function to get Python command (uses venv if available)
 get_python_cmd() {
     local script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-    local venv_python="${script_dir}/venv/bin/python3"
+    local root_dir="$(dirname "$script_dir")"
+    local venv_python="${root_dir}/venv/bin/python3"
     if [ -f "$venv_python" ]; then
         echo "$venv_python"
     elif command -v python3 > /dev/null 2>&1; then
@@ -31,9 +32,10 @@ fi
 # Check if polars is installed
 if ! "$PYTHON_CMD" -c "import polars" 2>/dev/null; then
     echo "ERROR: polars not installed."
-    if [ -f "${SCRIPT_DIR}/venv/bin/python3" ]; then
+    local root_dir="$(dirname "$SCRIPT_DIR")"
+    if [ -f "${root_dir}/venv/bin/python3" ]; then
         echo "Virtual environment found but polars is missing."
-        echo "Install with: ${SCRIPT_DIR}/venv/bin/pip install -r requirements.txt"
+        echo "Install with: ${root_dir}/venv/bin/pip install -r ${SCRIPT_DIR}/requirements.txt"
     else
         echo "Install with: pip install polars"
     fi
@@ -53,8 +55,9 @@ fi
 
 # Run dashboard (HTML)
 cd "$SCRIPT_DIR"
+ROOT_DIR="$(dirname "$SCRIPT_DIR")"
 if [ -n "$DATE" ]; then
-    "$PYTHON_CMD" "${SCRIPT_DIR}/dashboard_web.py" "$VENUE" --date "$DATE" --data-dir "${SCRIPT_DIR}/data" "${@:3}"
+    "$PYTHON_CMD" "${SCRIPT_DIR}/dashboard_web.py" "$VENUE" --date "$DATE" --data-dir "${ROOT_DIR}/data" "${@:3}"
 else
-    "$PYTHON_CMD" "${SCRIPT_DIR}/dashboard_web.py" "$VENUE" --data-dir "${SCRIPT_DIR}/data" "${@:2}"
+    "$PYTHON_CMD" "${SCRIPT_DIR}/dashboard_web.py" "$VENUE" --data-dir "${ROOT_DIR}/data" "${@:2}"
 fi
