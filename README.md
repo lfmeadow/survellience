@@ -130,7 +130,7 @@ cargo test
 ## Repository Structure
 
 ```
-├── bin/                    # Compiled binaries (surveillance_collect, surveillance_miner, surveillance_scanner)
+├── bin/                    # Build artifacts directory (ignored by git - generate with: cargo build --release)
 ├── config/                 # Configuration files (surveillance.toml)
 ├── docs/                   # Documentation
 ├── scripts/                # Shell scripts and Python utilities
