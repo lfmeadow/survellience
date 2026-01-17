@@ -151,7 +151,7 @@ if [ -f "$STATS_DIR/stats.csv" ] || [ -f "$STATS_DIR/stats.parquet" ]; then
     fi
 else
     echo "⚠️  No stats cache found for $VENUE/$DATE"
-    echo "   Run: ./target/release/surveillance_miner config/surveillance.toml $VENUE $DATE"
+    echo "   Run: ./target/release/surveillance_miner --config config/surveillance.toml mine --venue $VENUE --date $DATE"
 fi
 echo ""
 
@@ -241,10 +241,11 @@ if command -v systemctl > /dev/null 2>&1 && systemctl is-active --quiet surveill
         sudo journalctl -u surveillance-collect -n 5 --no-pager 2>/dev/null | tail -5 | sed 's/^/  /'
         
         # Error summary from journal
-        ERROR_COUNT=$(sudo journalctl -u surveillance-collect -n 100 --no-pager 2>/dev/null | grep -iE "error|failed|warn" | wc -l)
+        ERROR_COUNT=$(sudo journalctl -u surveillance-collect -n 100 --no-pager 2>/dev/null | grep -E " (WARN|ERROR|FATAL) " | wc -l)
         if [ "$ERROR_COUNT" -gt 0 ]; then
             echo ""
             echo "⚠️  Recent errors/warnings in journal: $ERROR_COUNT (last 100 lines)"
+            sudo journalctl -u surveillance-collect -n 100 --no-pager 2>/dev/null | grep -E " (WARN|ERROR|FATAL) " | tail -3 | sed 's/^/  /'
         fi
 
         # Activity summary from journal
@@ -256,6 +257,10 @@ if command -v systemctl > /dev/null 2>&1 && systemctl is-active --quiet surveill
         LAST_METRICS=$(sudo journalctl -u surveillance-collect -n 200 --no-pager 2>/dev/null | grep "WebSocket metrics" | tail -1)
         if [ -n "$LAST_METRICS" ]; then
             echo "Latest WebSocket metrics: ${LAST_METRICS#*: }"
+        fi
+        LAST_CURSOR=$(sudo journalctl -u surveillance-collect -n 200 --no-pager 2>/dev/null | grep "WARM cursor start" | tail -1)
+        if [ -n "$LAST_CURSOR" ]; then
+            echo "Latest WARM cursor: ${LAST_CURSOR#*: }"
         fi
     else
         echo "journalctl not available"

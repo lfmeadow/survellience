@@ -1,6 +1,8 @@
 #!/bin/bash
 # Wrapper script for dashboard.py - uses existing virtual environment
 
+set -euo pipefail
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENUE="${1:-polymarket}"
 DATE="${2:-}"
@@ -38,9 +40,21 @@ if ! "$PYTHON_CMD" -c "import polars" 2>/dev/null; then
     exit 1
 fi
 
-# Run dashboard
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+    cat <<EOF
+Usage: $0 [venue] [YYYY-MM-DD] [--refresh N]
+
+Examples:
+  $0 polymarket
+  $0 polymarket 2026-01-17 --refresh 3
+EOF
+    exit 0
+fi
+
+# Run dashboard (HTML)
+cd "$SCRIPT_DIR"
 if [ -n "$DATE" ]; then
-    "$PYTHON_CMD" "${SCRIPT_DIR}/dashboard.py" "$VENUE" --date "$DATE" "${@:3}"
+    "$PYTHON_CMD" "${SCRIPT_DIR}/dashboard_web.py" "$VENUE" --date "$DATE" --data-dir "${SCRIPT_DIR}/data" "${@:3}"
 else
-    "$PYTHON_CMD" "${SCRIPT_DIR}/dashboard.py" "$VENUE" "${@:2}"
+    "$PYTHON_CMD" "${SCRIPT_DIR}/dashboard_web.py" "$VENUE" --data-dir "${SCRIPT_DIR}/data" "${@:2}"
 fi

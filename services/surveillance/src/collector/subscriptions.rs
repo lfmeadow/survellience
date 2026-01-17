@@ -81,19 +81,41 @@ impl SubscriptionManager {
         // For Polymarket, batch token_ids together (CLOB WebSocket expects all token IDs in one message)
         let mut pending_add = self.pending_add.lock().await;
         if self.venue_name == "polymarket" {
+            let max_pending = venue_config.max_subs;
+            if pending_add.len() > max_pending {
+                let excess = pending_add.len() - max_pending;
+                pending_add.drain(0..excess);
+                warn!(
+                    "Pending subscriptions exceeded cap ({}). Dropped {} oldest entries.",
+                    max_pending,
+                    excess
+                );
+            }
+
             // Collect all token_ids to subscribe to
             let mut token_ids: Vec<String> = pending_add.iter()
                 .map(|(token_id, _)| token_id.clone())
                 .collect();
             token_ids.sort();
             token_ids.dedup();
-            
+
+            let max_batch = 500usize;
             if !token_ids.is_empty() && *churn_count < churn_limit {
+                if token_ids.len() > max_batch {
+                    warn!(
+                        "Pending subscription batch exceeds cap ({}). Will send {} now and keep {} queued.",
+                        max_batch,
+                        max_batch,
+                        token_ids.len() - max_batch
+                    );
+                    token_ids.truncate(max_batch);
+                }
                 let venue = self.venue.lock().await;
                 venue.subscribe(&token_ids, &[]).await?;
                 *churn_count += 1;
                 debug!("Subscribed to {} token IDs (Polymarket)", token_ids.len());
-                pending_add.clear(); // Clear all since we subscribed to all at once
+                let sent: HashSet<String> = token_ids.into_iter().collect();
+                pending_add.retain(|(token_id, _)| !sent.contains(token_id));
             }
         } else {
             // Other venues: subscribe one at a time
@@ -124,7 +146,11 @@ impl SubscriptionManager {
         loop {
             interval.tick().await;
             if let Err(e) = self.process_pending().await {
-                warn!("Subscription processing error: {}", e);
+                warn!(
+                    "Subscription processing error: {}. Stopping loop to preserve pending state.",
+                    e
+                );
+                break;
             }
         }
     }

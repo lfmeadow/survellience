@@ -1100,28 +1100,42 @@ impl Venue for PolymarketVenue {
         let sender = sender.as_mut()
             .ok_or_else(|| anyhow::anyhow!("WebSocket sender not available"))?;
 
+        let max_batch = 500usize;
+        let mut assets_ids = market_ids.to_vec();
+        if assets_ids.len() > max_batch {
+            tracing::warn!(
+                "Subscribe batch exceeds cap ({}). Truncating from {}.",
+                max_batch,
+                assets_ids.len()
+            );
+            assets_ids.truncate(max_batch);
+        }
         // Polymarket CLOB WebSocket subscription format
         // IMPORTANT: market_ids should be token IDs (clobTokenIds), NOT condition IDs
         // Format: {"type": "market", "assets_ids": ["token_id_1", "token_id_2"], "custom_feature_enabled": false}
         let subscribe_msg = PolymarketSubscribeMessage {
             message_type: "market".to_string(),  // Lowercase per documentation
-            assets_ids: market_ids.to_vec(),  // Token IDs (clobTokenIds from Gamma API)
+            assets_ids: assets_ids.clone(),  // Token IDs (clobTokenIds from Gamma API)
             custom_feature_enabled: false,
         };
 
         let msg_text = serde_json::to_string(&subscribe_msg)
             .context("Failed to serialize subscribe message")?;
 
-        tracing::info!("Subscribing to {} token IDs: {:?}", market_ids.len(), &market_ids[..market_ids.len().min(3)]);
+        tracing::info!(
+            "Subscribing to {} token IDs: {:?}",
+            assets_ids.len(),
+            &assets_ids[..assets_ids.len().min(3)]
+        );
         sender.send(Message::Text(msg_text))
             .await
             .context("Failed to send subscribe message")?;
 
-        tracing::info!("Subscription message sent for {} token IDs", market_ids.len());
+        tracing::info!("Subscription message sent for {} token IDs", assets_ids.len());
 
         // Track subscriptions (note: using market_ids as token IDs)
         let mut subs = self.subscribed_markets.lock().await;
-        for market_id in market_ids {
+        for market_id in &assets_ids {
             subs.insert(market_id.clone(), outcome_ids.to_vec());
         }
 

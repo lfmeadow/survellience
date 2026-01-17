@@ -10,7 +10,9 @@ import json
 import time
 import signal
 import argparse
-from datetime import datetime, timedelta
+import re
+import shutil
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional, Dict, List, Tuple
 from collections import defaultdict
@@ -25,7 +27,7 @@ except ImportError:
 class Dashboard:
     def __init__(self, venue: str = "polymarket", date: Optional[str] = None, refresh_interval: int = 5):
         self.venue = venue
-        self.date = date or datetime.utcnow().strftime("%Y-%m-%d")
+        self.date = date or datetime.now(timezone.utc).strftime("%Y-%m-%d")
         self.refresh_interval = refresh_interval
         self.running = True
         self.current_view = "overview"  # overview, markets, market_detail
@@ -112,6 +114,39 @@ class Dashboard:
             return is_running, info if info else None
         except:
             return False, None
+
+    def get_journal_lines(self, limit: int = 200) -> List[str]:
+        """Fetch recent journald lines for collector"""
+        import subprocess
+        try:
+            result = subprocess.run(
+                ["journalctl", "-u", "surveillance-collect", "-n", str(limit), "--no-pager"],
+                capture_output=True,
+                text=True,
+            )
+            if result.returncode != 0:
+                return []
+            return [line for line in result.stdout.splitlines() if line.strip()]
+        except Exception:
+            return []
+
+    def parse_latest_metrics(self, lines: List[str]) -> Optional[str]:
+        for line in reversed(lines):
+            if "WebSocket metrics:" in line:
+                return line.split("WebSocket metrics:", 1)[-1].strip()
+        return None
+
+    def parse_latest_warm_cursor(self, lines: List[str]) -> Optional[str]:
+        for line in reversed(lines):
+            if "WARM cursor start=" in line:
+                return line.split("INFO", 1)[-1].strip()
+        return None
+
+    def parse_latest_scheduler_sizes(self, lines: List[str]) -> Optional[str]:
+        for line in reversed(lines):
+            if "Scheduler for" in line and "HOT" in line and "WARM" in line:
+                return line.split("INFO", 1)[-1].strip()
+        return None
     
     def get_data_stats(self) -> Dict:
         """Get data collection statistics"""
@@ -261,64 +296,93 @@ class Dashboard:
         collector_running, collector_info = self.get_collector_status()
         data_stats = self.get_data_stats()
         top_markets = self.get_top_markets(limit=10)
+        journal_lines = self.get_journal_lines()
+        latest_metrics = self.parse_latest_metrics(journal_lines)
+        latest_cursor = self.parse_latest_warm_cursor(journal_lines)
+        latest_sizes = self.parse_latest_scheduler_sizes(journal_lines)
+        now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC")
         
-        print("=" * 80)
-        print(f"  Market Surveillance Dashboard - {self.venue.upper()} | {self.date}")
-        print("=" * 80)
+        term_width = shutil.get_terminal_size((120, 40)).columns
+        col_width = max(40, (term_width - 3) // 2)
+
+        def block(title: str, lines: List[str]) -> List[str]:
+            header = f"{title}".ljust(col_width)
+            underline = "-" * min(col_width, len(title) + 2)
+            content = [line[:col_width].ljust(col_width) for line in lines]
+            return [header, underline] + content
+
+        header = (
+            f"Market Surveillance Dashboard | {self.venue.upper()} | {self.date} | "
+            f"refresh={self.refresh_interval}s | {now_str}"
+        )
+        print("=" * min(term_width, len(header)))
+        print(header)
+        print("=" * min(term_width, len(header)))
         print()
-        
-        # System Health
-        print("SYSTEM HEALTH")
-        print("-" * 80)
+
+        # Left column blocks
+        health_lines = []
         if collector_running:
-            status_str = f"✅ RUNNING"
+            status_str = "RUNNING"
             if collector_info:
-                status_str += f" (PID: {collector_info.get('pid', '?')}, Mem: {collector_info.get('memory_mb', 0):.1f} MB)"
-            print(f"Collector: {status_str}")
+                status_str += f" (PID {collector_info.get('pid', '?')}, {collector_info.get('memory_mb', 0):.1f} MB)"
+            health_lines.append(f"Collector: {status_str}")
         else:
-            print("Collector: ❌ NOT RUNNING")
-        print()
-        
-        # Data Collection
-        print("DATA COLLECTION")
-        print("-" * 80)
-        print(f"Total files: {data_stats['total_files']}")
-        print(f"Total size: {data_stats['total_size_gb']:.2f} GB")
-        print(f"Recent files (last 10 min): {data_stats['recent_files']}")
-        if data_stats['hours_with_data']:
-            print(f"Hours with data: {', '.join(data_stats['hours_with_data'])}")
-        print()
-        
-        # Market Universe
-        print("MARKET UNIVERSE")
-        print("-" * 80)
-        print(f"Markets discovered: {len(self.markets)}")
+            health_lines.append("Collector: NOT RUNNING")
+        if latest_metrics:
+            health_lines.append(f"WS: {latest_metrics}")
+
+        universe_lines = [f"Markets: {len(self.markets)}"]
         if self.markets:
             with_tokens = sum(1 for m in self.markets if m.get('token_ids'))
-            print(f"Markets with token IDs: {with_tokens}")
+            universe_lines.append(f"With token IDs: {with_tokens}")
+        if latest_sizes:
+            universe_lines.append(latest_sizes)
+        if latest_cursor:
+            universe_lines.append(latest_cursor)
+
+        left_blocks = block("SYSTEM HEALTH", health_lines) + [" " * col_width] + block("UNIVERSE PROGRESS", universe_lines)
+
+        # Right column blocks
+        coverage_lines = [
+            f"Total files: {data_stats['total_files']}",
+            f"Total size: {data_stats['total_size_gb']:.2f} GB",
+            f"Recent files (10m): {data_stats['recent_files']}",
+        ]
+        if data_stats['hours_with_data']:
+            coverage_lines.append(f"Hours: {', '.join(data_stats['hours_with_data'])}")
+
+        nav_lines = [
+            "m: markets list",
+            "b: back",
+            "q: quit",
+        ]
+
+        right_blocks = block("DATA COVERAGE", coverage_lines) + [" " * col_width] + block("NAVIGATION", nav_lines)
+
+        max_rows = max(len(left_blocks), len(right_blocks))
+        left_blocks.extend([" " * col_width] * (max_rows - len(left_blocks)))
+        right_blocks.extend([" " * col_width] * (max_rows - len(right_blocks)))
+
+        for l, r in zip(left_blocks, right_blocks):
+            print(f"{l} | {r}")
+
         print()
-        
-            # Top Markets
-        print("TOP 10 MARKETS BY UPDATE COUNT")
-        print("-" * 80)
+        print("TOP MARKETS (updates)")
+        print("-" * min(term_width, 80))
         if top_markets:
-            print(f"{'Title':<50} {'Outcome':<8} {'Updates':<10} {'Spread':<12} {'Depth':<12}")
-            print("-" * 80)
+            print(f"{'Title':<50} {'Out':<4} {'Upd':<6} {'Spr':<10} {'Depth':<10}")
+            print("-" * min(term_width, 80))
             for m in top_markets[:10]:
                 market_title = next((mkt['title'] for mkt in self.markets if mkt['market_id'] == m['market_id']), 'N/A')
                 if len(market_title) > 48:
                     market_title = market_title[:45] + "..."
-                print(f"{market_title:<50} {m['outcome_id']:<8} {m['updates']:<10} {m['avg_spread']:<12.6f} {m['avg_depth']:<12.2f}")
+                print(
+                    f"{market_title:<50} {m['outcome_id']:<4} {m['updates']:<6} "
+                    f"{m['avg_spread']:<10.6f} {m['avg_depth']:<10.2f}"
+                )
         else:
             print("No market data available yet")
-        print()
-        
-        # Navigation
-        print("NAVIGATION")
-        print("-" * 80)
-        print("Press 'm' to view markets list")
-        print("Press 'q' to quit | 'r' to refresh immediately")
-        print(f"Auto-refresh every {self.refresh_interval} seconds")
         print()
     
     def render_markets_list(self):
@@ -438,7 +502,7 @@ class Dashboard:
             try:
                 tty.setcbreak(sys.stdin.fileno())
                 
-                if select.select([sys.stdin], [], [], 0.1)[0]:
+                if select.select([sys.stdin], [], [], 0.0)[0]:
                     char = sys.stdin.read(1)
                     
                     if char == 'q':
@@ -463,7 +527,7 @@ class Dashboard:
                         self.selected_market_index = min(len(self.markets) - 1, self.selected_market_index + 1)
                     elif char == '\x1b':  # ESC sequence (arrow keys)
                         # Handle arrow keys
-                        if select.select([sys.stdin], [], [], 0.1)[0]:
+                        if select.select([sys.stdin], [], [], 0.0)[0]:
                             seq = sys.stdin.read(2)
                             if seq == '[A' and self.current_view == "markets":  # Up arrow
                                 self.selected_market_index = max(0, self.selected_market_index - 1)
@@ -481,27 +545,31 @@ class Dashboard:
     
     def run(self):
         """Main dashboard loop"""
+        next_refresh = time.monotonic()
         while self.running:
-            # Load data
-            self.markets = self.load_universe()
-            self.market_stats = self.load_stats()
-            
-            # Clear and render
-            self.clear_screen()
-            
-            if self.current_view == "overview":
-                self.render_overview()
-            elif self.current_view == "markets":
-                self.render_markets_list()
-            elif self.current_view == "market_detail":
-                self.render_market_detail(self.selected_market_index)
-            
+            now = time.monotonic()
+            if now >= next_refresh:
+                # Load data
+                self.markets = self.load_universe()
+                self.market_stats = self.load_stats()
+
+                # Clear and render
+                self.clear_screen()
+
+                if self.current_view == "overview":
+                    self.render_overview()
+                elif self.current_view == "markets":
+                    self.render_markets_list()
+                elif self.current_view == "market_detail":
+                    self.render_market_detail(self.selected_market_index)
+
+                next_refresh = now + self.refresh_interval
+
             # Handle input (non-blocking)
             if not self.handle_input():
                 break
-            
-            # Wait for refresh interval
-            time.sleep(self.refresh_interval)
+
+            time.sleep(0.05)
 
 
 def main():

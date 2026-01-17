@@ -14,7 +14,7 @@ echo ""
 # Run the miner to generate/update stats
 echo "=== Generating Statistics ==="
 if [ -f "./target/release/surveillance_miner" ]; then
-    ./target/release/surveillance_miner config/surveillance.toml "$VENUE" "$DATE" 2>&1 | grep -v "^[0-9]" | head -50
+    ./target/release/surveillance_miner --config config/surveillance.toml mine --venue "$VENUE" --date "$DATE" 2>&1 | grep -v "^[0-9]" | head -50
 else
     echo "⚠️  Miner binary not found. Build with: cargo build --release"
 fi

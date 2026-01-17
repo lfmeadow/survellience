@@ -62,8 +62,11 @@ impl Scheduler {
         let warm_capacity = venue_config.max_subs.saturating_sub(hot_count);
         let remaining_len = remaining_markets.len();
         let mut warm_selected: Vec<&MarketInfo> = Vec::new();
+        let mut cursor_start: Option<usize> = None;
+        let mut cursor_next: Option<usize> = None;
         if remaining_len > 0 && warm_capacity > 0 {
             let start = self.rotation_cursor % remaining_len;
+            cursor_start = Some(start);
             for i in 0..remaining_len {
                 if warm_selected.len() >= warm_capacity {
                     break;
@@ -72,6 +75,7 @@ impl Scheduler {
                 warm_selected.push(remaining_markets[idx]);
             }
             self.rotation_cursor = (start + warm_selected.len()) % remaining_len;
+            cursor_next = Some(self.rotation_cursor);
         }
 
         let add_polymarket_tokens = |set: &mut HashSet<(String, String)>, market: &MarketInfo, max_subs: usize| {
@@ -136,6 +140,22 @@ impl Scheduler {
             warm_to_add.len(),
             warm_to_remove.len(),
         );
+        if let (Some(start), Some(next)) = (cursor_start, cursor_next) {
+            let cursor_pct = if remaining_len > 0 {
+                (next as f64 / remaining_len as f64) * 100.0
+            } else {
+                0.0
+            };
+            info!(
+                "Scheduler for {}: WARM cursor start={} next={} ({} remaining, capacity {}, {:.1}% through)",
+                venue_name,
+                start,
+                next,
+                remaining_len,
+                warm_capacity,
+                cursor_pct
+            );
+        }
 
         self.current_hot = new_hot.clone();
         self.current_warm = new_warm.clone();
