@@ -37,7 +37,8 @@ Edit `config/surveillance.toml` to configure:
 Discover and catalog markets:
 
 ```bash
-cargo run --bin surveillance_scanner [config_path]
+./bin/surveillance_scanner [config_path]
+# or build from source: cargo run --bin surveillance_scanner [config_path]
 ```
 
 Generates universe files at:
@@ -50,7 +51,8 @@ data/metadata/venue={venue}/date={YYYY-MM-DD}/universe.jsonl
 Collect order book snapshots:
 
 ```bash
-cargo run --bin surveillance_collect [config_path]
+./bin/surveillance_collect [config_path]
+# or build from source: cargo run --bin surveillance_collect [config_path]
 ```
 
 Writes Parquet files to:
@@ -63,7 +65,8 @@ data/orderbook_snapshots/venue={venue}/date={YYYY-MM-DD}/hour={HH}/snapshots_{ti
 Analyze collected data:
 
 ```bash
-cargo run --bin surveillance_miner -- mine --venue polymarket --date 2026-01-14
+./bin/surveillance_miner --config config/surveillance.toml mine --venue polymarket --date 2026-01-14
+# or build from source: cargo run --bin surveillance_miner -- mine --venue polymarket --date 2026-01-14
 ```
 
 Produces statistics at:
@@ -76,13 +79,14 @@ data/stats/venue={venue}/date={YYYY-MM-DD}/stats.parquet
 Estimate passive market-making viability:
 
 ```bash
-cargo run -p surveillance --bin surveillance_miner -- mm-viability \
+./bin/surveillance_miner --config config/surveillance.toml mm-viability \
   --venue polymarket \
   --date 2026-01-14 \
   --hours all \
   --fee-estimate 0.0 \
   --top 20 \
   --write-report true
+# or build from source: cargo run -p surveillance --bin surveillance_miner -- mm-viability ...
 ```
 
 Writes report to:
@@ -123,19 +127,55 @@ cargo test
 - ✅ Polymarket integration (REST API + WebSocket) - **Ready for production**
 - 🚧 Kalshi integration (structure ready, needs API implementation)
 
+## Repository Structure
+
+```
+├── bin/                    # Compiled binaries (surveillance_collect, surveillance_miner, surveillance_scanner)
+├── config/                 # Configuration files (surveillance.toml)
+├── docs/                   # Documentation
+├── scripts/                # Shell scripts and Python utilities
+├── services/               # Rust source code (workspace)
+├── target/                 # Build artifacts (not committed)
+├── venv/                   # Python virtual environment (not committed)
+├── Cargo.toml             # Rust workspace configuration
+├── README.md              # This file
+└── .gitignore             # Git ignore rules
+```
+
+## Quick Navigation
+
+### For New Agents/Owners:
+1. **Start Here**: `docs/QUICKSTART.md` - Complete setup guide
+2. **Production Ready**: `docs/PRODUCTION_QUICKSTART.md` - Deploy to production
+3. **System Status**: `docs/DEPLOYMENT_READINESS.md` - Current implementation status
+4. **Run Dashboard**: `./scripts/dashboard.sh` - Live monitoring interface
+
+### Key Scripts:
+- `scripts/health_check.sh` - System health verification
+- `scripts/monitor.sh [venue] [date]` - Comprehensive monitoring
+- `scripts/summarize.sh [venue] [date]` - Data summary reports
+- `scripts/run_mm_viability.sh [venue] [date]` - Market making analysis
+
+### Documentation:
+- `docs/MONITORING.md` - Monitoring and troubleshooting
+- `docs/START_COLLECTION.md` - Data collection setup
+- `docs/DESIGN.md` - System architecture and design decisions
+- Venue-specific: `docs/POLYMARKET_INTEGRATION.md`, `docs/KALSHI_INTEGRATION.md`
+
 ## Production Deployment
 
 **Ready for live data collection with Polymarket!**
 
-See `PRODUCTION_QUICKSTART.md` for deployment instructions and `DEPLOYMENT_READINESS.md` for detailed status.
+See `docs/PRODUCTION_QUICKSTART.md` for deployment instructions and `docs/DEPLOYMENT_READINESS.md` for detailed status.
 
 ### Quick Start
 
-1. Build: `cargo build --release`
+1. Build: `cargo build --release` (or use pre-built binaries in `bin/`)
 2. Configure: Edit `config/surveillance.toml` (set `[venues.polymarket].enabled = true`, `[mock].enabled = false`)
-3. Discover markets: `./target/release/surveillance_scanner config/surveillance.toml`
-4. Collect data: `./target/release/surveillance_collect config/surveillance.toml`
-5. Analyze: `./target/release/surveillance_miner config/surveillance.toml $(date +%Y-%m-%d)`
+3. Discover markets: `./bin/surveillance_scanner config/surveillance.toml`
+4. Collect data: `./bin/surveillance_collect config/surveillance.toml`
+5. Analyze: `./bin/surveillance_miner --config config/surveillance.toml mine --venue polymarket --date $(date +%Y-%m-%d)`
+6. Monitor: `./scripts/dashboard.sh` (web dashboard) or `./scripts/monitor.sh polymarket`
 
 ## TODO
 
