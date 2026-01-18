@@ -20,8 +20,8 @@ subscription_churn_limit_per_minute = 3
 # Example: ["Up or Down"] excludes short-term crypto prediction markets
 exclude_title_patterns = ["Up or Down"]
 # Only include markets that close at least this many hours from now (0 = no filter)
-# Example: 1.0 excludes markets closing within 1 hour (5-min, 15-min windows)
-min_hours_until_close = 1.0
+# 24 hours excludes all game-day betting and short-term markets
+min_hours_until_close = 24.0
 
 [venues.kalshi]
 enabled = false
