@@ -54,6 +54,37 @@ class DashboardData:
                     continue
         return markets
 
+    def load_all_market_titles(self) -> Dict[str, str]:
+        """Load market_id -> title mapping from all available universe files"""
+        titles = {}
+        metadata_dir = self.data_dir / "metadata" / f"venue={self.venue}"
+        
+        if not metadata_dir.exists():
+            return titles
+        
+        # Load from all date directories to get comprehensive mapping
+        for date_dir in sorted(metadata_dir.iterdir(), reverse=True):
+            if not date_dir.is_dir() or not date_dir.name.startswith("date="):
+                continue
+            universe_file = date_dir / "universe.jsonl"
+            if universe_file.exists():
+                try:
+                    for line in universe_file.read_text().splitlines():
+                        if not line.strip():
+                            continue
+                        try:
+                            market = json.loads(line)
+                            market_id = market.get("market_id")
+                            title = market.get("title")
+                            if market_id and title and market_id not in titles:
+                                titles[market_id] = title
+                        except json.JSONDecodeError:
+                            continue
+                except Exception:
+                    continue
+        
+        return titles
+
     def get_collector_status(self) -> Dict:
         status = {"running": False, "pid": None, "memory_mb": None}
         try:
@@ -293,12 +324,21 @@ class DashboardData:
         rows = top_markets.to_dicts()
         if title_map:
             for row in rows:
-                row["title"] = title_map.get(row["market_id"], "N/A")
+                title = title_map.get(row["market_id"])
+                if not title:
+                    # Show truncated market_id if no title found
+                    title = f"[{row['market_id'][:40]}...]"
+                row["title"] = title
         return rows
 
     def build_payload(self) -> Dict:
         markets = self.load_universe()
-        title_map = {m.get("market_id", ""): m.get("title", "N/A") for m in markets if m.get("market_id")}
+        # Load titles from all available universe files (including previous days)
+        title_map = self.load_all_market_titles()
+        # Add any titles from current universe that might not be in the map
+        for m in markets:
+            if m.get("market_id") and m.get("title"):
+                title_map.setdefault(m["market_id"], m["title"])
         journal = self.get_journal_lines()
         metrics, metrics_timestamp = self.parse_latest_metrics(journal)
         sizes = self.parse_latest_sizes(journal)

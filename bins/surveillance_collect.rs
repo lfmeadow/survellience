@@ -48,6 +48,8 @@ async fn main() -> Result<()> {
                     pm_config.api_secret.clone(),
                     pm_config.ws_url.clone().unwrap_or_default(),
                     pm_config.rest_url.clone().unwrap_or_default(),
+                    pm_config.exclude_title_patterns.clone(),
+                    pm_config.min_hours_until_close,
                 ));
                 let mut collector = Collector::new(
                     config.clone(),

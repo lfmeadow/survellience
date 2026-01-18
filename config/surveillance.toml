@@ -15,6 +15,14 @@ snapshot_interval_ms_hot = 2000
 snapshot_interval_ms_warm = 10000
 subscription_churn_limit_per_minute = 3
 
+# Market filtering options
+# Exclude markets whose title contains any of these patterns (case-insensitive)
+# Example: ["Up or Down"] excludes short-term crypto prediction markets
+exclude_title_patterns = ["Up or Down"]
+# Only include markets that close at least this many hours from now (0 = no filter)
+# Example: 1.0 excludes markets closing within 1 hour (5-min, 15-min windows)
+min_hours_until_close = 1.0
+
 [venues.kalshi]
 enabled = false
 # Kalshi Access Key ID - Get from: https://trade.kalshi.com/trade-api/account/settings

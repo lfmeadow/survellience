@@ -38,6 +38,12 @@ pub struct VenueConfig {
     pub snapshot_interval_ms_warm: u64,
     #[serde(default = "default_subscription_churn_limit")]
     pub subscription_churn_limit_per_minute: usize,
+    /// Exclude markets whose title contains any of these patterns (case-insensitive)
+    #[serde(default)]
+    pub exclude_title_patterns: Vec<String>,
+    /// Only include markets that close at least this many hours from now (0 = no filter)
+    #[serde(default)]
+    pub min_hours_until_close: f64,
 }
 
 #[derive(Debug, Clone, Deserialize)]

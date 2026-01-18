@@ -34,6 +34,7 @@ class Dashboard:
         self.selected_market_index = 0
         self.markets = []
         self.market_stats = {}
+        self.market_titles = {}  # market_id -> title mapping from all universe files
         self.data_dir = Path("data")
         
         # Register signal handler for graceful exit
@@ -68,6 +69,38 @@ class Dashboard:
                             continue
         
         return markets
+    
+    def load_market_titles(self) -> Dict[str, str]:
+        """Load market_id -> title mapping from all available universe files"""
+        titles = {}
+        metadata_dir = self.data_dir / "metadata" / f"venue={self.venue}"
+        
+        if not metadata_dir.exists():
+            return titles
+        
+        # Load from all date directories to get comprehensive mapping
+        for date_dir in sorted(metadata_dir.iterdir(), reverse=True):
+            if not date_dir.is_dir() or not date_dir.name.startswith("date="):
+                continue
+            universe_file = date_dir / "universe.jsonl"
+            if universe_file.exists():
+                try:
+                    with open(universe_file, 'r') as f:
+                        for line in f:
+                            line = line.strip()
+                            if line:
+                                try:
+                                    market = json.loads(line)
+                                    market_id = market.get('market_id')
+                                    title = market.get('title')
+                                    if market_id and title and market_id not in titles:
+                                        titles[market_id] = title
+                                except json.JSONDecodeError:
+                                    continue
+                except Exception:
+                    continue
+        
+        return titles
     
     def load_stats(self) -> Dict[str, Dict]:
         """Load market statistics from stats cache"""
@@ -374,7 +407,13 @@ class Dashboard:
             print(f"{'Title':<50} {'Out':<4} {'Upd':<6} {'Spr':<10} {'Depth':<10}")
             print("-" * min(term_width, 80))
             for m in top_markets[:10]:
-                market_title = next((mkt['title'] for mkt in self.markets if mkt['market_id'] == m['market_id']), 'N/A')
+                # First check market_titles (all dates), then fall back to current universe
+                market_title = self.market_titles.get(m['market_id'])
+                if not market_title:
+                    market_title = next((mkt['title'] for mkt in self.markets if mkt['market_id'] == m['market_id']), None)
+                if not market_title:
+                    # Show truncated market_id if no title found
+                    market_title = f"[{m['market_id'][:40]}...]"
                 if len(market_title) > 48:
                     market_title = market_title[:45] + "..."
                 print(
@@ -552,6 +591,7 @@ class Dashboard:
                 # Load data
                 self.markets = self.load_universe()
                 self.market_stats = self.load_stats()
+                self.market_titles = self.load_market_titles()
 
                 # Clear and render
                 self.clear_screen()

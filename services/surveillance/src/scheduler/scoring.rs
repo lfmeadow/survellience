@@ -77,6 +77,7 @@ mod tests {
                 close_ts: Some(chrono::Utc::now().timestamp_millis() + 86400_000),
                 status: "active".to_string(),
                 tags: vec![],
+                token_ids: vec![],
             },
             MarketInfo {
                 market_id: "market2".to_string(),
@@ -85,6 +86,7 @@ mod tests {
                 close_ts: Some(chrono::Utc::now().timestamp_millis() - 86400_000),
                 status: "closed".to_string(),
                 tags: vec![],
+                token_ids: vec![],
             },
         ];
 

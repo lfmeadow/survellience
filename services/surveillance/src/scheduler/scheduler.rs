@@ -316,6 +316,8 @@ mod tests {
                     snapshot_interval_ms_hot: 2000,
                     snapshot_interval_ms_warm: 10000,
                     subscription_churn_limit_per_minute: 20,
+                    exclude_title_patterns: vec![],
+                    min_hours_until_close: 0.0,
                 }),
                 kalshi: None,
             },

@@ -365,10 +365,21 @@ pub struct PolymarketVenue {
     token_to_market: Arc<Mutex<HashMap<String, (String, String)>>>,
     trade_buffer: Arc<Mutex<Vec<PolymarketTradeRecord>>>,
     trade_last_flush: Arc<Mutex<Instant>>,
+    // Market filtering options
+    exclude_title_patterns: Vec<String>,
+    min_hours_until_close: f64,
 }
 
 impl PolymarketVenue {
-    pub fn new(name: String, api_key: String, api_secret: String, ws_url: String, rest_url: String) -> Self {
+    pub fn new(
+        name: String,
+        api_key: String,
+        api_secret: String,
+        ws_url: String,
+        rest_url: String,
+        exclude_title_patterns: Vec<String>,
+        min_hours_until_close: f64,
+    ) -> Self {
         Self {
             name,
             api_key,
@@ -385,6 +396,8 @@ impl PolymarketVenue {
             token_to_market: Arc::new(Mutex::new(HashMap::new())),
             trade_buffer: Arc::new(Mutex::new(Vec::new())),
             trade_last_flush: Arc::new(Mutex::new(Instant::now())),
+            exclude_title_patterns,
+            min_hours_until_close,
         }
     }
 
@@ -584,6 +597,15 @@ impl Venue for PolymarketVenue {
         tracing::info!("Fetched {} total open markets from Polymarket events API", all_markets.len());
 
         let mut result = Vec::new();
+        let mut filtered_by_title = 0usize;
+        let mut filtered_by_duration = 0usize;
+        let now_ms = Utc::now().timestamp_millis();
+        let min_close_ms = if self.min_hours_until_close > 0.0 {
+            now_ms + (self.min_hours_until_close * 3600.0 * 1000.0) as i64
+        } else {
+            0
+        };
+        
         for market in all_markets {
             // Filter: Only include markets that are open (not closed and active)
             if market.closed.unwrap_or(false) {
@@ -591,6 +613,37 @@ impl Venue for PolymarketVenue {
             }
             if let Some(false) = market.active {
                 continue; // Skip inactive markets
+            }
+            
+            // Filter: Exclude markets matching title patterns (case-insensitive)
+            if !self.exclude_title_patterns.is_empty() {
+                let title_lower = market.question.to_lowercase();
+                let excluded = self.exclude_title_patterns.iter()
+                    .any(|pattern| title_lower.contains(&pattern.to_lowercase()));
+                if excluded {
+                    filtered_by_title += 1;
+                    continue;
+                }
+            }
+            
+            // Parse close timestamp for duration filtering
+            let close_ts = market.end_date.as_ref()
+                .and_then(|d| {
+                    // Parse ISO 8601 date
+                    chrono::DateTime::parse_from_rfc3339(d)
+                        .ok()
+                        .map(|dt| dt.timestamp_millis())
+                });
+            
+            // Filter: Exclude markets that close too soon
+            if min_close_ms > 0 {
+                if let Some(close) = close_ts {
+                    if close < min_close_ms {
+                        filtered_by_duration += 1;
+                        continue;
+                    }
+                }
+                // Note: Markets without close_ts are included (can't determine duration)
             }
             
             // Polymarket uses condition_id as the market identifier
@@ -602,14 +655,6 @@ impl Venue for PolymarketVenue {
                 // Multi-outcome market - we'll use indices
                 vec!["0".to_string(), "1".to_string()] // Default to binary
             };
-
-            let close_ts = market.end_date.as_ref()
-                .and_then(|d| {
-                    // Parse ISO 8601 date
-                    chrono::DateTime::parse_from_rfc3339(d)
-                        .ok()
-                        .map(|dt| dt.timestamp_millis())
-                });
 
             // Extract token IDs (clobTokenIds) - required for WebSocket subscriptions
             let token_ids = if let Some(clob_token_ids_raw) = &market.clob_token_ids {
@@ -646,7 +691,14 @@ impl Venue for PolymarketVenue {
             });
         }
 
-        tracing::info!("Discovered {} markets from Polymarket", result.len());
+        if filtered_by_title > 0 || filtered_by_duration > 0 {
+            tracing::info!(
+                "Discovered {} markets from Polymarket (filtered: {} by title pattern, {} by duration)",
+                result.len(), filtered_by_title, filtered_by_duration
+            );
+        } else {
+            tracing::info!("Discovered {} markets from Polymarket", result.len());
+        }
         Ok(result)
     }
 
@@ -1215,6 +1267,8 @@ mod tests {
             "test_secret".to_string(),
             "wss://test".to_string(),
             "https://test".to_string(),
+            vec![],  // exclude_title_patterns
+            0.0,     // min_hours_until_close
         );
         assert_eq!(venue.name(), "polymarket");
         assert!(!venue.is_connected());
@@ -1228,6 +1282,8 @@ mod tests {
             "".to_string(),
             "".to_string(),
             "".to_string(),
+            vec![],  // exclude_title_patterns
+            0.0,     // min_hours_until_close
         );
 
         let msg = r#"{
