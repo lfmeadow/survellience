@@ -378,6 +378,8 @@ pub async fn run_ingest(
     config: &IngestConfig,
     ingestor: &dyn RulesIngestor,
 ) -> Result<Vec<RulesRecord>> {
+    use indicatif::{ProgressBar, ProgressStyle};
+    
     let mut markets = load_universe(&config.data_dir, &config.venue, &config.date)?;
     tracing::info!("Loaded {} markets from universe", markets.len());
     
@@ -397,18 +399,32 @@ pub async fn run_ingest(
     let mut records = Vec::new();
     let mut skipped = 0;
     let mut errors = 0;
-    let total = markets.len();
+    let total = markets.len() as u64;
     
-    for (i, market) in markets.iter().enumerate() {
-        // Progress logging every 100 markets or at milestones
-        if (i + 1) % 100 == 0 || i == 0 || i + 1 == total {
-            tracing::info!("Processing market {}/{} ({}%)", i + 1, total, (i + 1) * 100 / total);
-        }
-        
+    // Create progress bar
+    let pb = ProgressBar::new(total);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({percent}%) {msg}")
+            .unwrap()
+            .progress_chars("=>-")
+    );
+    pb.set_message("Fetching rules...");
+    
+    for market in markets.iter() {
         if existing.contains(&market.market_id) {
             skipped += 1;
+            pb.inc(1);
             continue;
         }
+        
+        // Update progress bar message with current market
+        let title_short = if market.title.len() > 40 {
+            format!("{}...", &market.title[..37])
+        } else {
+            market.title.clone()
+        };
+        pb.set_message(title_short);
         
         match ingestor.fetch_rules(market).await {
             Ok(record) => {
@@ -420,16 +436,18 @@ pub async fn run_ingest(
             }
         }
         
+        pb.inc(1);
+        
         // Rate limiting
         if config.rate_limit_ms > 0 {
             tokio::time::sleep(std::time::Duration::from_millis(config.rate_limit_ms)).await;
         }
     }
     
-    tracing::info!(
-        "Ingested {} rules, skipped {} existing, {} errors",
+    pb.finish_with_message(format!(
+        "Done: {} fetched, {} skipped, {} errors",
         records.len(), skipped, errors
-    );
+    ));
     
     Ok(records)
 }
