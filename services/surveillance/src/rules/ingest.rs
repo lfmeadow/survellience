@@ -1,7 +1,7 @@
 //! Rules ingestion - fetches and stores market rules text
 
 use anyhow::{Context, Result};
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sha2::{Sha256, Digest};
 use std::collections::HashSet;
@@ -488,7 +488,7 @@ fn extract_strike_from_title(title: &str) -> Option<f64> {
 }
 
 /// Generate mock universe for testing
-pub fn generate_mock_universe(venue: &str) -> Vec<UniverseMarket> {
+pub fn generate_mock_universe(_venue: &str) -> Vec<UniverseMarket> {
     let now = Utc::now();
     let close_ts = (now + chrono::Duration::days(7)).timestamp_millis();
     

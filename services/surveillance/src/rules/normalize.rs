@@ -1,9 +1,8 @@
 //! Normalize raw rules into canonical propositions
 
-use anyhow::Result;
 use crate::rules::proposition::*;
 use crate::rules::ingest::RulesRecord;
-use crate::rules::extract::{extract_proposition, ExtractionResult};
+use crate::rules::extract::extract_proposition;
 use crate::rules::confidence::compute_confidence;
 
 /// Normalize a single rules record into a proposition

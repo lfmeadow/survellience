@@ -1,6 +1,6 @@
 //! Output writing for rules pipeline (Parquet and JSONL)
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use polars::prelude::*;
 use std::path::Path;
 use crate::rules::proposition::*;

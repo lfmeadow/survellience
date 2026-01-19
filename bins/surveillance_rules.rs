@@ -16,9 +16,9 @@ use std::collections::HashMap;
 use surveillance::rules::{
     ingest::{
         IngestConfig, RulesIngestor, MockIngestor, PolymarketIngestor, KalshiIngestor,
-        RulesRecord, run_ingest, write_rules_jsonl, generate_mock_universe, load_universe,
+        RulesRecord, run_ingest, write_rules_jsonl, generate_mock_universe,
     },
-    normalize::{normalize_batch, filter_by_confidence},
+    normalize::normalize_batch,
     constraints::{generate_constraints, ConstraintConfig},
     arb_detector::{
         ArbDetectorConfig, DetectionMode, detect_violations,
