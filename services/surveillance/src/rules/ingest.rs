@@ -55,6 +55,8 @@ pub struct IngestConfig {
     pub force_refetch: bool,
     pub concurrency: usize,
     pub rate_limit_ms: u64,
+    /// Maximum number of markets to process (None = all)
+    pub limit: Option<usize>,
 }
 
 impl Default for IngestConfig {
@@ -65,7 +67,8 @@ impl Default for IngestConfig {
             data_dir: "data".to_string(),
             force_refetch: false,
             concurrency: 2,
-            rate_limit_ms: 500,
+            rate_limit_ms: 100, // Reduced from 500ms for practical use
+            limit: None,
         }
     }
 }
@@ -156,17 +159,67 @@ impl RulesIngestor for MockIngestor {
     }
 }
 
-/// Stub ingestor for Polymarket (TODO: implement real fetching)
+/// Polymarket market detail response from /markets endpoint
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PolymarketMarketDetail {
+    #[serde(rename = "conditionId")]
+    pub condition_id: Option<String>,
+    pub question: Option<String>,
+    pub description: Option<String>,
+    #[serde(rename = "resolutionSource")]
+    pub resolution_source: Option<String>,
+    #[serde(rename = "endDate")]
+    pub end_date: Option<String>,
+    pub slug: Option<String>,
+    pub active: Option<bool>,
+    pub closed: Option<bool>,
+    #[serde(rename = "outcomes")]
+    pub outcomes: Option<serde_json::Value>,
+    #[serde(rename = "outcomePrices")]
+    pub outcome_prices: Option<serde_json::Value>,
+}
+
+/// Real Polymarket rules ingestor using Gamma API
 pub struct PolymarketIngestor {
-    #[allow(dead_code)]
     api_url: String,
+    client: reqwest::blocking::Client,
 }
 
 impl PolymarketIngestor {
     pub fn new() -> Self {
         Self {
             api_url: "https://gamma-api.polymarket.com".to_string(),
+            client: reqwest::blocking::Client::builder()
+                .timeout(std::time::Duration::from_secs(30))
+                .build()
+                .expect("Failed to build HTTP client"),
         }
+    }
+    
+    /// Fetch market details using /markets?condition_ids={id} endpoint
+    fn fetch_market_details(&self, condition_id: &str) -> Result<PolymarketMarketDetail> {
+        let url = format!("{}/markets?condition_ids={}", self.api_url, condition_id);
+        
+        let response = self.client
+            .get(&url)
+            .header("Accept", "application/json")
+            .send()
+            .with_context(|| format!("Failed to fetch market details for {}", condition_id))?;
+        
+        if !response.status().is_success() {
+            anyhow::bail!(
+                "Polymarket API returned {} for market {}",
+                response.status(),
+                condition_id
+            );
+        }
+        
+        // Response is an array - get first element
+        let markets: Vec<PolymarketMarketDetail> = response.json()
+            .with_context(|| format!("Failed to parse market details for {}", condition_id))?;
+        
+        markets.into_iter().next()
+            .ok_or_else(|| anyhow::anyhow!("No market found for condition_id {}", condition_id))
     }
 }
 
@@ -178,19 +231,34 @@ impl Default for PolymarketIngestor {
 
 impl RulesIngestor for PolymarketIngestor {
     fn fetch_rules(&self, market: &UniverseMarket) -> Result<RulesRecord> {
-        // TODO: Implement real Polymarket rules fetching
-        // For now, use title as rules text placeholder
+        // Fetch market details from Polymarket API
+        let detail = self.fetch_market_details(&market.market_id)?;
+        
+        // Serialize full detail to JSON before extracting fields
+        let raw_json = serde_json::to_value(&detail).ok();
+        
+        // Build rules text from description
+        let raw_rules_text = detail.description
+            .clone()
+            .unwrap_or_else(|| market.title.clone());
+        
+        // Build URL from slug
+        let url = detail.slug
+            .as_ref()
+            .map(|slug| format!("https://polymarket.com/event/{}", slug))
+            .or_else(|| Some(format!("https://polymarket.com/market/{}", market.market_id)));
+        
         Ok(RulesRecord {
             venue: "polymarket".to_string(),
             market_id: market.market_id.clone(),
             outcome_id: None,
-            url: Some(format!("https://polymarket.com/event/{}", market.market_id)),
+            url,
             fetched_ts: Utc::now().timestamp_millis(),
-            title: market.title.clone(),
+            title: detail.question.unwrap_or_else(|| market.title.clone()),
             close_ts: market.close_ts,
-            raw_rules_text: market.title.clone(), // Placeholder
-            raw_resolution_source: None,
-            raw_json: None,
+            raw_rules_text,
+            raw_resolution_source: detail.resolution_source,
+            raw_json,
         })
     }
     
@@ -304,8 +372,14 @@ pub fn run_ingest(
     config: &IngestConfig,
     ingestor: &dyn RulesIngestor,
 ) -> Result<Vec<RulesRecord>> {
-    let markets = load_universe(&config.data_dir, &config.venue, &config.date)?;
+    let mut markets = load_universe(&config.data_dir, &config.venue, &config.date)?;
     tracing::info!("Loaded {} markets from universe", markets.len());
+    
+    // Apply limit if specified
+    if let Some(limit) = config.limit {
+        markets.truncate(limit);
+        tracing::info!("Limiting to {} markets", limit);
+    }
     
     let existing = if config.force_refetch {
         HashSet::new()
@@ -317,8 +391,14 @@ pub fn run_ingest(
     let mut records = Vec::new();
     let mut skipped = 0;
     let mut errors = 0;
+    let total = markets.len();
     
-    for market in &markets {
+    for (i, market) in markets.iter().enumerate() {
+        // Progress logging every 100 markets or at milestones
+        if (i + 1) % 100 == 0 || i == 0 || i + 1 == total {
+            tracing::info!("Processing market {}/{} ({}%)", i + 1, total, (i + 1) * 100 / total);
+        }
+        
         if existing.contains(&market.market_id) {
             skipped += 1;
             continue;

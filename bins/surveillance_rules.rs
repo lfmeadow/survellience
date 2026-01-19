@@ -54,6 +54,9 @@ enum Commands {
         force: bool,
         #[arg(long, default_value = "data")]
         data_dir: String,
+        /// Limit number of markets to process (for testing)
+        #[arg(long)]
+        limit: Option<usize>,
     },
     /// Normalize rules into propositions
     Normalize {
@@ -143,8 +146,9 @@ fn run_ingest_command(
     data_dir: &str,
     mock: bool,
     force: bool,
+    limit: Option<usize>,
 ) -> Result<Vec<RulesRecord>> {
-    tracing::info!("Ingesting rules for venue={}, date={}", venue, date);
+    tracing::info!("Ingesting rules for venue={}, date={}, limit={:?}", venue, date, limit);
     
     let ingestor = get_ingestor(venue, mock);
     
@@ -167,7 +171,8 @@ fn run_ingest_command(
         data_dir: data_dir.to_string(),
         force_refetch: force,
         concurrency: 2,
-        rate_limit_ms: 500,
+        rate_limit_ms: 100, // 100ms between requests
+        limit,
     };
     
     let records = run_ingest(&config, ingestor.as_ref())?;
@@ -433,7 +438,7 @@ fn run_all_command(
     tracing::info!("Running full pipeline for venue={}, date={}, mock={}", venue, date, mock);
     
     // 1. Ingest
-    let records = run_ingest_command(venue, date, data_dir, mock, false)?;
+    let records = run_ingest_command(venue, date, data_dir, mock, false, None)?;
     tracing::info!("Step 1/4: Ingested {} rules", records.len());
     
     // 2. Normalize
@@ -474,12 +479,12 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
     
     match cli.command {
-        Commands::Ingest { venue, date, all_venues, mock, force, data_dir } => {
+        Commands::Ingest { venue, date, all_venues, mock, force, data_dir, limit } => {
             let venues = get_venues(venue, all_venues);
             let date = get_date(date);
             
             for v in venues {
-                run_ingest_command(&v, &date, &data_dir, mock, force)?;
+                run_ingest_command(&v, &date, &data_dir, mock, force, limit)?;
             }
         }
         Commands::Normalize { venue, date, all_venues, data_dir } => {
