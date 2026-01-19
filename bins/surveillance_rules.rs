@@ -170,8 +170,8 @@ async fn run_ingest_command(
         date: date.to_string(),
         data_dir: data_dir.to_string(),
         force_refetch: force,
-        concurrency: 2,
-        rate_limit_ms: 50, // 50ms between batch requests
+        concurrency: 5, // 5 concurrent requests to avoid rate limits
+        rate_limit_ms: 0, // No delay - rate limiting handled by retry backoff
         limit,
     };
     

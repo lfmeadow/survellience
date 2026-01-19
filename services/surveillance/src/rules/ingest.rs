@@ -198,32 +198,52 @@ impl PolymarketIngestor {
         }
     }
     
-    /// Fetch market details using /markets?condition_ids={id} endpoint
+    /// Fetch market details using /markets?condition_ids={id} endpoint with retry
     async fn fetch_market_details(&self, condition_id: &str) -> Result<PolymarketMarketDetail> {
         let url = format!("{}/markets?condition_ids={}", self.api_url, condition_id);
+        let max_retries = 3;
+        let mut delay_ms = 500;
         
-        let response = self.client
-            .get(&url)
-            .header("Accept", "application/json")
-            .send()
-            .await
-            .with_context(|| format!("Failed to fetch market details for {}", condition_id))?;
-        
-        if !response.status().is_success() {
-            anyhow::bail!(
-                "Polymarket API returned {} for market {}",
-                response.status(),
-                condition_id
-            );
+        for attempt in 0..=max_retries {
+            let response = self.client
+                .get(&url)
+                .header("Accept", "application/json")
+                .send()
+                .await
+                .with_context(|| format!("Failed to fetch market details for {}", condition_id))?;
+            
+            let status = response.status();
+            
+            // Rate limited - retry with backoff
+            if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+                if attempt < max_retries {
+                    tracing::debug!("Rate limited for {}, retrying in {}ms (attempt {}/{})", 
+                        condition_id, delay_ms, attempt + 1, max_retries);
+                    tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
+                    delay_ms *= 2; // Exponential backoff
+                    continue;
+                }
+                anyhow::bail!("Rate limited after {} retries for market {}", max_retries, condition_id);
+            }
+            
+            if !status.is_success() {
+                anyhow::bail!(
+                    "Polymarket API returned {} for market {}",
+                    status,
+                    condition_id
+                );
+            }
+            
+            // Response is an array - get first element
+            let markets: Vec<PolymarketMarketDetail> = response.json()
+                .await
+                .with_context(|| format!("Failed to parse market details for {}", condition_id))?;
+            
+            return markets.into_iter().next()
+                .ok_or_else(|| anyhow::anyhow!("No market found for condition_id {}", condition_id));
         }
         
-        // Response is an array - get first element
-        let markets: Vec<PolymarketMarketDetail> = response.json()
-            .await
-            .with_context(|| format!("Failed to parse market details for {}", condition_id))?;
-        
-        markets.into_iter().next()
-            .ok_or_else(|| anyhow::anyhow!("No market found for condition_id {}", condition_id))
+        anyhow::bail!("Failed to fetch market {} after {} retries", condition_id, max_retries)
     }
     
 }
@@ -508,8 +528,8 @@ pub async fn run_ingest_polymarket_concurrent(
     let records = Arc::new(Mutex::new(Vec::new()));
     let errors = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     
-    // Process concurrently with limited parallelism
-    let concurrency = config.concurrency.max(10); // At least 10 concurrent requests
+    // Process concurrently with limited parallelism (5 default to avoid rate limits)
+    let concurrency = if config.concurrency > 0 { config.concurrency } else { 5 };
     
     stream::iter(markets_to_fetch)
         .map(|market| {
@@ -523,7 +543,8 @@ pub async fn run_ingest_polymarket_concurrent(
                     Ok(record) => {
                         records.lock().await.push(record);
                     }
-                    Err(_e) => {
+                    Err(e) => {
+                        tracing::debug!("Failed to fetch {}: {}", market.market_id, e);
                         errors.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     }
                 }
