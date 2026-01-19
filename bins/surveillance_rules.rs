@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use surveillance::rules::{
     ingest::{
         IngestConfig, RulesIngestor, MockIngestor, PolymarketIngestor, KalshiIngestor,
-        RulesRecord, run_ingest, write_rules_jsonl, generate_mock_universe,
+        RulesRecord, run_ingest, run_ingest_polymarket_concurrent, write_rules_jsonl, generate_mock_universe,
     },
     normalize::normalize_batch,
     constraints::{generate_constraints, ConstraintConfig},
@@ -150,10 +150,9 @@ async fn run_ingest_command(
 ) -> Result<Vec<RulesRecord>> {
     tracing::info!("Ingesting rules for venue={}, date={}, limit={:?}", venue, date, limit);
     
-    let ingestor = get_ingestor(venue, mock);
-    
     // For mock mode, generate a mock universe first
     if mock {
+        let ingestor = get_ingestor(venue, mock);
         let mock_markets = generate_mock_universe(venue);
         let mut records = Vec::new();
         for m in &mock_markets {
@@ -172,11 +171,19 @@ async fn run_ingest_command(
         data_dir: data_dir.to_string(),
         force_refetch: force,
         concurrency: 2,
-        rate_limit_ms: 100, // 100ms between requests
+        rate_limit_ms: 50, // 50ms between batch requests
         limit,
     };
     
-    let records = run_ingest(&config, ingestor.as_ref()).await?;
+    // Use concurrent ingestion for Polymarket (much faster)
+    let records = if venue == "polymarket" {
+        let ingestor = PolymarketIngestor::new();
+        run_ingest_polymarket_concurrent(&config, &ingestor).await?
+    } else {
+        let ingestor = get_ingestor(venue, mock);
+        run_ingest(&config, ingestor.as_ref()).await?
+    };
+    
     write_rules_jsonl(data_dir, venue, date, &records, true)?;
     
     Ok(records)

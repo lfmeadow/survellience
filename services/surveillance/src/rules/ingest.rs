@@ -192,7 +192,7 @@ impl PolymarketIngestor {
         Self {
             api_url: "https://gamma-api.polymarket.com".to_string(),
             client: reqwest::Client::builder()
-                .timeout(std::time::Duration::from_secs(30))
+                .timeout(std::time::Duration::from_secs(60))
                 .build()
                 .expect("Failed to build HTTP client"),
         }
@@ -225,6 +225,7 @@ impl PolymarketIngestor {
         markets.into_iter().next()
             .ok_or_else(|| anyhow::anyhow!("No market found for condition_id {}", condition_id))
     }
+    
 }
 
 impl Default for PolymarketIngestor {
@@ -451,6 +452,104 @@ pub async fn run_ingest(
     ));
     
     Ok(records)
+}
+
+/// Run concurrent ingestion for Polymarket (much faster than sequential)
+pub async fn run_ingest_polymarket_concurrent(
+    config: &IngestConfig,
+    ingestor: &PolymarketIngestor,
+) -> Result<Vec<RulesRecord>> {
+    use indicatif::{ProgressBar, ProgressStyle};
+    use futures::stream::{self, StreamExt};
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+    
+    let mut markets = load_universe(&config.data_dir, &config.venue, &config.date)?;
+    tracing::info!("Loaded {} markets from universe", markets.len());
+    
+    // Apply limit if specified
+    if let Some(limit) = config.limit {
+        markets.truncate(limit);
+        tracing::info!("Limiting to {} markets", limit);
+    }
+    
+    let existing = if config.force_refetch {
+        HashSet::new()
+    } else {
+        load_existing_rules(&config.data_dir, &config.venue, &config.date)?
+    };
+    tracing::info!("Found {} existing rules records", existing.len());
+    
+    // Filter out existing markets
+    let markets_to_fetch: Vec<_> = markets
+        .into_iter()
+        .filter(|m| !existing.contains(&m.market_id))
+        .collect();
+    
+    let skipped = existing.len();
+    tracing::info!("Skipping {} already fetched, {} to fetch", skipped, markets_to_fetch.len());
+    
+    if markets_to_fetch.is_empty() {
+        return Ok(Vec::new());
+    }
+    
+    let total = markets_to_fetch.len() as u64;
+    
+    // Create progress bar
+    let pb = Arc::new(ProgressBar::new(total));
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({percent}%) | {msg}")
+            .unwrap()
+            .progress_chars("=>-")
+    );
+    pb.set_message("Fetching rules (concurrent)...");
+    
+    let records = Arc::new(Mutex::new(Vec::new()));
+    let errors = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    
+    // Process concurrently with limited parallelism
+    let concurrency = config.concurrency.max(10); // At least 10 concurrent requests
+    
+    stream::iter(markets_to_fetch)
+        .map(|market| {
+            let ingestor = ingestor;
+            let pb = Arc::clone(&pb);
+            let records = Arc::clone(&records);
+            let errors = Arc::clone(&errors);
+            
+            async move {
+                match ingestor.fetch_rules(&market).await {
+                    Ok(record) => {
+                        records.lock().await.push(record);
+                    }
+                    Err(_e) => {
+                        errors.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    }
+                }
+                pb.inc(1);
+            }
+        })
+        .buffer_unordered(concurrency)
+        .collect::<Vec<()>>()
+        .await;
+    
+    let final_records = match Arc::try_unwrap(records) {
+        Ok(mutex) => mutex.into_inner(),
+        Err(arc) => {
+            let guard = arc.lock().await;
+            guard.clone()
+        }
+    };
+    
+    let error_count = errors.load(std::sync::atomic::Ordering::Relaxed);
+    
+    pb.finish_with_message(format!(
+        "Done: {} fetched, {} skipped, {} errors",
+        final_records.len(), skipped, error_count
+    ));
+    
+    Ok(final_records)
 }
 
 /// Write rules records to JSONL file
