@@ -418,13 +418,14 @@ pub async fn run_ingest(
             continue;
         }
         
-        // Update progress bar message with current market
-        let title_short = if market.title.len() > 40 {
-            format!("{}...", &market.title[..37])
+        // Update progress bar message with current market (UTF-8 safe truncation)
+        let title_short: String = market.title.chars().take(37).collect();
+        let title_display = if market.title.chars().count() > 40 {
+            format!("{}...", title_short)
         } else {
             market.title.clone()
         };
-        pb.set_message(title_short);
+        pb.set_message(title_display);
         
         match ingestor.fetch_rules(market).await {
             Ok(record) => {
