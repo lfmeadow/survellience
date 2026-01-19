@@ -1,0 +1,31 @@
+# Rules Pipeline Configuration
+
+[ingest]
+# Rate limit between requests (ms)
+rate_limit_ms = 500
+# Max concurrent requests
+concurrency = 2
+# Skip markets already ingested
+skip_existing = true
+
+[normalize]
+# Minimum confidence threshold for high-confidence propositions
+min_confidence = 0.6
+
+[constraints]
+# Minimum confidence to include in constraint generation
+min_constraint_confidence = 0.5
+# Time tolerance for matching market deadlines (ms)
+time_tolerance_ms = 300000  # 5 minutes
+
+[arb_detector]
+# Default violation margin
+default_margin = 0.01
+# Default detection mode: "latest" or "rolling"
+default_mode = "latest"
+# Rolling window size in minutes (if mode = "rolling")
+rolling_window_minutes = 60
+
+[review]
+# Confidence threshold for routing to review
+review_threshold = 0.6

@@ -94,6 +94,43 @@ Writes report to:
 data/reports/mm_viability/venue={venue}/date={YYYY-MM-DD}/mm_viability.parquet
 ```
 
+### Rules Pipeline (Arb Detector)
+
+The rules pipeline extracts logical constraints from market rules and detects arbitrage opportunities:
+
+```bash
+# Run full pipeline in mock mode (for testing)
+cargo run --bin surveillance_rules -- run-all --mock --all-venues --date 2026-01-18
+
+# Run individual steps
+cargo run --bin surveillance_rules -- ingest --venue polymarket --date 2026-01-18
+cargo run --bin surveillance_rules -- normalize --venue polymarket --date 2026-01-18
+cargo run --bin surveillance_rules -- constraints --venue polymarket --date 2026-01-18
+cargo run --bin surveillance_rules -- detect-arb --venue polymarket --date 2026-01-18 --mock
+```
+
+**Pipeline stages:**
+1. **Ingest**: Fetch market rules text (or use mock data)
+2. **Normalize**: Parse rules into canonical propositions with confidence scores
+3. **Constraints**: Generate logical constraints (e.g., monotonic ladders for price barriers)
+4. **Detect-Arb**: Check for constraint violations using orderbook data
+
+**Output files:**
+```
+data/rules/venue={venue}/date={date}/rules.jsonl          # Raw rules text
+data/logic/venue={venue}/date={date}/propositions.parquet # Normalized propositions
+data/logic/venue={venue}/date={date}/constraints.parquet  # Generated constraints
+data/logic/venue={venue}/date={date}/violations.parquet   # Detected violations
+data/review_queue/venue={venue}/date={date}/queue.jsonl   # Low-confidence items for review
+```
+
+**Example: Inspect violations with Polars**
+```python
+import polars as pl
+df = pl.read_parquet("data/logic/venue=polymarket/date=2026-01-18/violations.parquet")
+print(df)
+```
+
 ## Mock Mode
 
 Set `[mock] enabled = true` in the config to run without API credentials. The system will generate synthetic market data for testing.
@@ -106,6 +143,16 @@ Set `[mock] enabled = true` in the config to run without API credentials. The sy
 - **storage/**: Parquet file writing with batching
 - **analytics/**: Data analysis using Polars
 - **venue/**: Venue adapters (Polymarket, Kalshi, Mock)
+- **rules/**: Rules → Logic → Constraints → Arb Detector pipeline
+  - `proposition.rs`: Core types for normalized propositions
+  - `ingest.rs`: Rules text fetching and storage
+  - `extract.rs`: Deterministic parsing and extraction
+  - `normalize.rs`: Normalization pipeline
+  - `confidence.rs`: Confidence scoring
+  - `constraints.rs`: Constraint generation (monotonic ladders, etc.)
+  - `arb_detector.rs`: Violation detection
+  - `review_queue.rs`: Human-in-the-loop review management
+  - `outputs.rs`: Parquet/JSONL output writing
 
 ## Testing
 

@@ -15,6 +15,10 @@ path = "../../bins/surveillance_collect.rs"
 name = "surveillance_miner"
 path = "../../bins/surveillance_miner.rs"
 
+[[bin]]
+name = "surveillance_rules"
+path = "../../bins/surveillance_rules.rs"
+
 [dependencies]
 anyhow = { workspace = true }
 tokio = { workspace = true }
@@ -37,6 +41,9 @@ async-trait = "0.1"
 fastrand = "2.0"
 reqwest = { version = "0.11", default-features = false, features = ["json", "rustls-tls", "rustls-tls-webpki-roots"] }
 url = "2.5"
+regex = "1.10"
+sha2 = "0.10"
+walkdir = "2.4"
 
 [dev-dependencies]
 tempfile = "3.8"

@@ -1,6 +1,7 @@
 pub mod analytics;
 pub mod collector;
 pub mod config;
+pub mod rules;
 pub mod schema;
 pub mod scanner;
 pub mod scheduler;
