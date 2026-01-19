@@ -73,10 +73,11 @@ impl Default for IngestConfig {
     }
 }
 
-/// Rules ingestor trait
+/// Rules ingestor trait (async)
+#[async_trait::async_trait]
 pub trait RulesIngestor: Send + Sync {
     /// Fetch rules for a single market
-    fn fetch_rules(&self, market: &UniverseMarket) -> Result<RulesRecord>;
+    async fn fetch_rules(&self, market: &UniverseMarket) -> Result<RulesRecord>;
     
     /// Venue name
     fn venue(&self) -> &str;
@@ -136,8 +137,9 @@ impl MockIngestor {
     }
 }
 
+#[async_trait::async_trait]
 impl RulesIngestor for MockIngestor {
-    fn fetch_rules(&self, market: &UniverseMarket) -> Result<RulesRecord> {
+    async fn fetch_rules(&self, market: &UniverseMarket) -> Result<RulesRecord> {
         let rules_text = self.generate_btc_ladder_rules(market);
         
         Ok(RulesRecord {
@@ -182,14 +184,14 @@ pub struct PolymarketMarketDetail {
 /// Real Polymarket rules ingestor using Gamma API
 pub struct PolymarketIngestor {
     api_url: String,
-    client: reqwest::blocking::Client,
+    client: reqwest::Client,
 }
 
 impl PolymarketIngestor {
     pub fn new() -> Self {
         Self {
             api_url: "https://gamma-api.polymarket.com".to_string(),
-            client: reqwest::blocking::Client::builder()
+            client: reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(30))
                 .build()
                 .expect("Failed to build HTTP client"),
@@ -197,13 +199,14 @@ impl PolymarketIngestor {
     }
     
     /// Fetch market details using /markets?condition_ids={id} endpoint
-    fn fetch_market_details(&self, condition_id: &str) -> Result<PolymarketMarketDetail> {
+    async fn fetch_market_details(&self, condition_id: &str) -> Result<PolymarketMarketDetail> {
         let url = format!("{}/markets?condition_ids={}", self.api_url, condition_id);
         
         let response = self.client
             .get(&url)
             .header("Accept", "application/json")
             .send()
+            .await
             .with_context(|| format!("Failed to fetch market details for {}", condition_id))?;
         
         if !response.status().is_success() {
@@ -216,6 +219,7 @@ impl PolymarketIngestor {
         
         // Response is an array - get first element
         let markets: Vec<PolymarketMarketDetail> = response.json()
+            .await
             .with_context(|| format!("Failed to parse market details for {}", condition_id))?;
         
         markets.into_iter().next()
@@ -229,10 +233,11 @@ impl Default for PolymarketIngestor {
     }
 }
 
+#[async_trait::async_trait]
 impl RulesIngestor for PolymarketIngestor {
-    fn fetch_rules(&self, market: &UniverseMarket) -> Result<RulesRecord> {
+    async fn fetch_rules(&self, market: &UniverseMarket) -> Result<RulesRecord> {
         // Fetch market details from Polymarket API
-        let detail = self.fetch_market_details(&market.market_id)?;
+        let detail = self.fetch_market_details(&market.market_id).await?;
         
         // Serialize full detail to JSON before extracting fields
         let raw_json = serde_json::to_value(&detail).ok();
@@ -287,8 +292,9 @@ impl Default for KalshiIngestor {
     }
 }
 
+#[async_trait::async_trait]
 impl RulesIngestor for KalshiIngestor {
-    fn fetch_rules(&self, market: &UniverseMarket) -> Result<RulesRecord> {
+    async fn fetch_rules(&self, market: &UniverseMarket) -> Result<RulesRecord> {
         // TODO: Implement real Kalshi rules fetching
         Ok(RulesRecord {
             venue: "kalshi".to_string(),
@@ -367,8 +373,8 @@ pub fn load_existing_rules(data_dir: &str, venue: &str, date: &str) -> Result<Ha
     Ok(existing)
 }
 
-/// Run ingestion for a venue
-pub fn run_ingest(
+/// Run ingestion for a venue (async)
+pub async fn run_ingest(
     config: &IngestConfig,
     ingestor: &dyn RulesIngestor,
 ) -> Result<Vec<RulesRecord>> {
@@ -404,7 +410,7 @@ pub fn run_ingest(
             continue;
         }
         
-        match ingestor.fetch_rules(market) {
+        match ingestor.fetch_rules(market).await {
             Ok(record) => {
                 records.push(record);
             }
@@ -416,7 +422,7 @@ pub fn run_ingest(
         
         // Rate limiting
         if config.rate_limit_ms > 0 {
-            std::thread::sleep(std::time::Duration::from_millis(config.rate_limit_ms));
+            tokio::time::sleep(std::time::Duration::from_millis(config.rate_limit_ms)).await;
         }
     }
     

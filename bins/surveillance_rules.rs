@@ -140,7 +140,7 @@ fn get_ingestor(venue: &str, mock: bool) -> Box<dyn RulesIngestor> {
     }
 }
 
-fn run_ingest_command(
+async fn run_ingest_command(
     venue: &str,
     date: &str,
     data_dir: &str,
@@ -155,11 +155,12 @@ fn run_ingest_command(
     // For mock mode, generate a mock universe first
     if mock {
         let mock_markets = generate_mock_universe(venue);
-        let records: Vec<RulesRecord> = mock_markets
-            .iter()
-            .map(|m| ingestor.fetch_rules(m))
-            .filter_map(|r| r.ok())
-            .collect();
+        let mut records = Vec::new();
+        for m in &mock_markets {
+            if let Ok(record) = ingestor.fetch_rules(m).await {
+                records.push(record);
+            }
+        }
         
         write_rules_jsonl(data_dir, venue, date, &records, false)?;
         return Ok(records);
@@ -175,7 +176,7 @@ fn run_ingest_command(
         limit,
     };
     
-    let records = run_ingest(&config, ingestor.as_ref())?;
+    let records = run_ingest(&config, ingestor.as_ref()).await?;
     write_rules_jsonl(data_dir, venue, date, &records, true)?;
     
     Ok(records)
@@ -429,7 +430,7 @@ fn run_detect_arb_command(
     Ok(violations)
 }
 
-fn run_all_command(
+async fn run_all_command(
     venue: &str,
     date: &str,
     data_dir: &str,
@@ -438,7 +439,7 @@ fn run_all_command(
     tracing::info!("Running full pipeline for venue={}, date={}, mock={}", venue, date, mock);
     
     // 1. Ingest
-    let records = run_ingest_command(venue, date, data_dir, mock, false, None)?;
+    let records = run_ingest_command(venue, date, data_dir, mock, false, None).await?;
     tracing::info!("Step 1/4: Ingested {} rules", records.len());
     
     // 2. Normalize
@@ -484,7 +485,7 @@ async fn main() -> Result<()> {
             let date = get_date(date);
             
             for v in venues {
-                run_ingest_command(&v, &date, &data_dir, mock, force, limit)?;
+                run_ingest_command(&v, &date, &data_dir, mock, force, limit).await?;
             }
         }
         Commands::Normalize { venue, date, all_venues, data_dir } => {
@@ -516,7 +517,7 @@ async fn main() -> Result<()> {
             let date = get_date(date);
             
             for v in venues {
-                run_all_command(&v, &date, &data_dir, mock)?;
+                run_all_command(&v, &date, &data_dir, mock).await?;
             }
         }
     }
