@@ -115,9 +115,12 @@ pub fn load_latest_prices(
         .collect();
     
     for entry in parquet_files {
-        let df = LazyFrame::scan_parquet(entry.path(), Default::default())
-            .with_context(|| format!("Failed to read parquet: {:?}", entry.path()))?
-            .collect()?;
+        // Use ParquetReader directly to avoid Hive partitioning issues
+        let file = std::fs::File::open(entry.path())
+            .with_context(|| format!("Failed to open parquet: {:?}", entry.path()))?;
+        let df = polars::prelude::ParquetReader::new(file)
+            .finish()
+            .with_context(|| format!("Failed to read parquet: {:?}", entry.path()))?;
         
         for row_idx in 0..df.height() {
             let market_id = df.column("market_id")?
