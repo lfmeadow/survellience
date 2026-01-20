@@ -1,76 +1,63 @@
-# Rust/Cargo
-/target/
-**/*.rs.bk
-Cargo.lock
 
-# Data files (orderbook snapshots, universe, stats cache)
-/data/
-*.parquet
-*.csv
-universe.jsonl
-stats_cache.parquet
-
-# Logs
-*.log
-logs/
-
-# IDE files
-.vscode/
-.idea/
-*.swp
-*.swo
 *~
-.DS_Store
-
-# OS files
-Thumbs.db
-.DS_Store
-*.orig
-
-# Environment and secrets
-.env
-.env.local
-*.pem
-*.key
-*.crt
-config/secrets.toml
-
-# Temporary files
-*.tmp
-*.temp
-/tmp/
-
-# Build artifacts
-/target/
-bin/
-*.o
-*.so
-*.dylib
-*.dll
-*.exe
-
-# Coverage reports
-tarpaulin-report.html
-coverage/
-*.gcda
-*.gcno
-
-# Documentation builds
-/book/
-/doc/
-
+*$py.class
+*.backup
 # Backup files
 *.bak
-*.backup
-
-# Python virtual environment
-venv/
+bin/
+/book/
+# Build artifacts
+Cargo.lock
+config/secrets.toml
+coverage/
+# Coverage reports
+*.crt
+*.csv
+/data/
+# Data files (orderbook snapshots, universe, stats cache)
+*.dll
+/doc/
+# Documentation builds
+.DS_Store
+*.dylib
+.env
 env/
-.venv/
-
-# Python cache
+# Environment and secrets
+.env.local
+*.exe
+*.gcda
+*.gcno
+.idea/
+# IDE files
+*.key
+*.log
+logs/
+# Logs
+*.o
+*.orig
+# OS files
+*.parquet
+*.pem
 __pycache__/
 *.py[cod]
-*$py.class
-*.so
 .Python
+# Python cache
+# Python virtual environment
+**/*.rs.bk
+# Rust/Cargo
+*.so
+stats_cache.parquet
+*.swo
+*.swp
+/target/
+target/debug/
+tarpaulin-report.html
+*.temp
+# Temporary files
+Thumbs.db
+*.tmp
+/tmp/
+universe.jsonl
+.venv/
+venv/
+.vscode/

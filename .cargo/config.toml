@@ -3,6 +3,14 @@ b = "build --release"
 r = "run --release"
 t = "test --release"
 
-[build]
-# Uncomment to make release the default (breaks some tooling)
-# default-release = true
+# Make optimized builds the default for all profiles
+[profile.dev]
+opt-level = 2
+debug = 1
+
+[profile.dev.package."*"]
+opt-level = 2
+
+# Prevent accidentally building debug (redirect to release)
+[env]
+CARGO_PROFILE_DEV_DEBUG = "0"
