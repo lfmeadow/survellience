@@ -12,7 +12,7 @@ echo "Project directory: ${PROJECT_DIR}"
 chmod +x "${SCRIPT_DIR}/cron_scanner.sh"
 chmod +x "${SCRIPT_DIR}/cron_miner.sh"
 
-# Create cron entries
+# Create cron entries (CRON_TZ=UTC ensures these run at UTC times)
 CRON_SCANNER="1 0 * * * ${SCRIPT_DIR}/cron_scanner.sh"
 CRON_MINER="59 23 * * * ${SCRIPT_DIR}/cron_miner.sh"
 
@@ -33,9 +33,10 @@ fi
 
 # Install cron jobs (preserving existing entries)
 (
-    echo "${EXISTING_CRON}" | grep -v "cron_scanner.sh" | grep -v "cron_miner.sh" || true
+    echo "${EXISTING_CRON}" | grep -v "cron_scanner.sh" | grep -v "cron_miner.sh" | grep -v "CRON_TZ=UTC" || true
     echo ""
     echo "# Surveillance system cron jobs (UTC times)"
+    echo "CRON_TZ=UTC"
     echo "${CRON_SCANNER}"
     echo "${CRON_MINER}"
 ) | crontab -
