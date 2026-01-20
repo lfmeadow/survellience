@@ -137,6 +137,7 @@ def generate_html(data: RulesData, tab: str = "rules") -> str:
         th {{ background: #f8f8f8; font-weight: 600; position: sticky; top: 0; }}
         tr:hover {{ background: #f5f5f5; }}
         .truncate {{ max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }}
+        .wrap {{ max-width: 500px; white-space: pre-wrap; word-wrap: break-word; font-size: 12px; line-height: 1.4; }}
         .badge {{ display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; font-weight: bold; }}
         .badge-green {{ background: #d4edda; color: #155724; }}
         .badge-red {{ background: #f8d7da; color: #721c24; }}
@@ -175,15 +176,15 @@ def render_rules(rules: List[Dict]) -> str:
 
     rows = ""
     for r in rules[:500]:  # Limit to 500 for performance
-        title = html.escape(r.get("title", "")[:80])
-        market_id = r.get("market_id", "")[:20] + "..."
-        rules_text = html.escape(r.get("raw_rules_text", "")[:150])
+        title = html.escape(r.get("title", ""))
+        market_id = r.get("market_id", "")[:16] + "..."
+        rules_text = html.escape(r.get("raw_rules_text", "")[:500])
         url = r.get("url", "")
         
         rows += f"""<tr>
             <td class="truncate" title="{html.escape(r.get('market_id', ''))}">{market_id}</td>
             <td class="truncate" title="{html.escape(r.get('title', ''))}">{title}</td>
-            <td class="truncate" title="{html.escape(r.get('raw_rules_text', ''))}">{rules_text}</td>
+            <td class="wrap">{rules_text}</td>
             <td><a href="{url}" target="_blank">Link</a></td>
         </tr>"""
 
