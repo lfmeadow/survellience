@@ -1,0 +1,8 @@
+[alias]
+b = "build --release"
+r = "run --release"
+t = "test --release"
+
+[build]
+# Uncomment to make release the default (breaks some tooling)
+# default-release = true
