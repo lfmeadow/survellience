@@ -479,7 +479,7 @@ pub async fn run_ingest_polymarket_concurrent(
     config: &IngestConfig,
     ingestor: &PolymarketIngestor,
 ) -> Result<Vec<RulesRecord>> {
-    use indicatif::{ProgressBar, ProgressStyle};
+    use indicatif::ProgressStyle;
     use futures::stream::{self, StreamExt};
     use std::sync::Arc;
     use tokio::sync::Mutex;
@@ -508,6 +508,7 @@ pub async fn run_ingest_polymarket_concurrent(
     
     let skipped = existing.len();
     tracing::info!("Skipping {} already fetched, {} to fetch", skipped, markets_to_fetch.len());
+    eprintln!("Fetching {} markets with concurrency {}...", markets_to_fetch.len(), if config.concurrency > 0 { config.concurrency } else { 5 });
     
     if markets_to_fetch.is_empty() {
         return Ok(Vec::new());
@@ -516,7 +517,7 @@ pub async fn run_ingest_polymarket_concurrent(
     let total = markets_to_fetch.len() as u64;
     
     // Create progress bar
-    let pb = Arc::new(ProgressBar::new(total));
+    let pb = Arc::new(indicatif::ProgressBar::new(total));
     pb.set_style(
         ProgressStyle::default_bar()
             .template("{spinner:.green} [{elapsed_precise}] [{bar:40.cyan/blue}] {pos}/{len} ({percent}%) | {msg}")
@@ -524,6 +525,7 @@ pub async fn run_ingest_polymarket_concurrent(
             .progress_chars("=>-")
     );
     pb.set_message("Fetching rules (concurrent)...");
+    pb.enable_steady_tick(std::time::Duration::from_millis(100));
     
     let records = Arc::new(Mutex::new(Vec::new()));
     let errors = Arc::new(std::sync::atomic::AtomicUsize::new(0));
@@ -531,12 +533,18 @@ pub async fn run_ingest_polymarket_concurrent(
     // Process concurrently with limited parallelism (5 default to avoid rate limits)
     let concurrency = if config.concurrency > 0 { config.concurrency } else { 5 };
     
+    let processed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let last_print = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    
     stream::iter(markets_to_fetch)
         .map(|market| {
             let ingestor = ingestor;
             let pb = Arc::clone(&pb);
             let records = Arc::clone(&records);
             let errors = Arc::clone(&errors);
+            let processed = Arc::clone(&processed);
+            let last_print = Arc::clone(&last_print);
+            let total = total as usize;
             
             async move {
                 match ingestor.fetch_rules(&market).await {
@@ -549,11 +557,22 @@ pub async fn run_ingest_polymarket_concurrent(
                     }
                 }
                 pb.inc(1);
+                let count = processed.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+                
+                // Print progress every 10% or every 50 items
+                let pct = (count * 100) / total;
+                let last = last_print.load(std::sync::atomic::Ordering::Relaxed);
+                if pct >= last + 10 || (count % 50 == 0 && count > last_print.load(std::sync::atomic::Ordering::Relaxed)) {
+                    last_print.store(pct, std::sync::atomic::Ordering::Relaxed);
+                    eprint!("\r  Progress: {}/{} ({}%)", count, total, pct);
+                }
             }
         })
         .buffer_unordered(concurrency)
         .collect::<Vec<()>>()
         .await;
+    
+    eprintln!(); // New line after progress
     
     let final_records = match Arc::try_unwrap(records) {
         Ok(mutex) => mutex.into_inner(),
@@ -565,10 +584,11 @@ pub async fn run_ingest_polymarket_concurrent(
     
     let error_count = errors.load(std::sync::atomic::Ordering::Relaxed);
     
-    pb.finish_with_message(format!(
+    pb.finish_and_clear();
+    eprintln!(
         "Done: {} fetched, {} skipped, {} errors",
         final_records.len(), skipped, error_count
-    ));
+    );
     
     Ok(final_records)
 }

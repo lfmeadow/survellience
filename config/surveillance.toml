@@ -17,10 +17,10 @@ subscription_churn_limit_per_minute = 3
 
 # Market filtering options
 # Exclude markets whose title contains any of these patterns (case-insensitive)
-exclude_title_patterns = ["Up or Down"]
+exclude_title_patterns = []
 # Only include markets that close at least this many hours from now (0 = no filter)
 # 168 hours (1 week) excludes all short-term markets
-min_hours_until_close = 168.0
+min_hours_until_close = 0
 
 [venues.kalshi]
 enabled = false
