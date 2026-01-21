@@ -40,6 +40,13 @@ try:
 except ImportError:
     pass
 
+OLLAMA_AVAILABLE = False
+try:
+    import requests
+    OLLAMA_AVAILABLE = True
+except ImportError:
+    pass
+
 
 @dataclass
 class SymbolicProposition:
@@ -271,6 +278,91 @@ class OpenAIParser(LLMParser):
             return []
 
 
+class OllamaParser(LLMParser):
+    """Local LLM parser using Ollama."""
+    
+    def __init__(self, model: str = "qwen2.5:7b", base_url: str = "http://localhost:11434"):
+        self.model = model
+        self.base_url = base_url
+    
+    def parse_single(self, title: str, rules: str) -> dict:
+        prompt = EXTRACTION_PROMPT.format(title=title, rules=rules[:2000])
+        
+        try:
+            response = requests.post(
+                f"{self.base_url}/api/generate",
+                json={
+                    "model": self.model,
+                    "prompt": f"{SYSTEM_PROMPT}\n\n{prompt}",
+                    "stream": False,
+                    "options": {"temperature": 0.1}
+                },
+                timeout=60
+            )
+            response.raise_for_status()
+            text = response.json().get("response", "").strip()
+            
+            # Extract JSON from response
+            if "```" in text:
+                text = text.split("```")[1]
+                if text.startswith("json"):
+                    text = text[4:]
+            
+            # Find JSON object
+            start = text.find("{")
+            end = text.rfind("}") + 1
+            if start >= 0 and end > start:
+                text = text[start:end]
+            
+            return json.loads(text)
+        except json.JSONDecodeError as e:
+            return {"error": f"JSON parse error: {e}", "confidence": 0.0}
+        except Exception as e:
+            return {"error": str(e), "confidence": 0.0}
+    
+    def find_constraints(self, propositions: List[dict]) -> List[dict]:
+        summary = []
+        for p in propositions[:50]:  # Smaller batch for local model
+            summary.append({
+                "market_id": p.get("market_id", "")[:20],
+                "type": p.get("proposition_type"),
+                "underlier": p.get("underlier"),
+                "strike": p.get("strike"),
+                "symbolic_form": p.get("symbolic_form"),
+            })
+        
+        prompt = BATCH_CONSTRAINT_PROMPT.format(propositions=json.dumps(summary, indent=2))
+        
+        try:
+            response = requests.post(
+                f"{self.base_url}/api/generate",
+                json={
+                    "model": self.model,
+                    "prompt": f"{SYSTEM_PROMPT}\n\n{prompt}",
+                    "stream": False,
+                    "options": {"temperature": 0.1}
+                },
+                timeout=120
+            )
+            response.raise_for_status()
+            text = response.json().get("response", "").strip()
+            
+            if "```" in text:
+                text = text.split("```")[1]
+                if text.startswith("json"):
+                    text = text[4:]
+            
+            start = text.find("[")
+            end = text.rfind("]") + 1
+            if start >= 0 and end > start:
+                text = text[start:end]
+            
+            return json.loads(text)
+        except Exception as e:
+            print(f"Constraint detection error: {e}")
+            return []
+
+
 def load_rules(data_dir: Path, venue: str, date: str) -> List[dict]:
     """Load raw rules from JSONL."""
     path = data_dir / "rules" / f"venue={venue}" / f"date={date}" / "rules.jsonl"
@@ -315,6 +407,12 @@ def run_llm_parsing(
             print("ERROR: openai library not installed. pip install openai")
             sys.exit(1)
         parser = OpenAIParser(model or "gpt-4o")
+    elif provider == "ollama":
+        if not OLLAMA_AVAILABLE:
+            print("ERROR: requests library not installed. pip install requests")
+            sys.exit(1)
+        parser = OllamaParser(model or "qwen2.5:7b")
+        print(f"Using local Ollama with model: {model or 'qwen2.5:7b'}")
     else:
         print(f"ERROR: Unknown provider {provider}")
         sys.exit(1)
@@ -445,7 +543,7 @@ def main():
     parser.add_argument("--venue", default="polymarket", help="Venue name")
     parser.add_argument("--date", default=datetime.now(timezone.utc).strftime("%Y-%m-%d"), help="Date")
     parser.add_argument("--data-dir", default="data", help="Data directory")
-    parser.add_argument("--provider", choices=["anthropic", "openai"], default="anthropic", help="LLM provider")
+    parser.add_argument("--provider", choices=["anthropic", "openai", "ollama"], default="ollama", help="LLM provider")
     parser.add_argument("--model", help="Model name (provider-specific)")
     parser.add_argument("--limit", type=int, help="Limit number of rules to parse")
     parser.add_argument("--no-cache", action="store_true", help="Disable caching")
