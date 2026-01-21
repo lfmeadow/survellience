@@ -76,7 +76,8 @@ class RulesExplorer:
     def load_review_queue(self) -> List[dict]:
         if "review" in self._cache:
             return self._cache["review"]
-        path = self.data_dir / "logic" / f"venue={self.venue}" / f"date={self.date}" / "review_queue.jsonl"
+        # Review queue is in data/review_queue/ not data/logic/
+        path = self.data_dir / "review_queue" / f"venue={self.venue}" / f"date={self.date}" / "queue.jsonl"
         items = []
         if path.exists():
             for line in path.read_text().splitlines():
