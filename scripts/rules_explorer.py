@@ -73,6 +73,21 @@ class RulesExplorer:
             return df
         return pl.DataFrame()
     
+    def load_review_queue(self) -> List[dict]:
+        if "review" in self._cache:
+            return self._cache["review"]
+        path = self.data_dir / "logic" / f"venue={self.venue}" / f"date={self.date}" / "review_queue.jsonl"
+        items = []
+        if path.exists():
+            for line in path.read_text().splitlines():
+                if line.strip():
+                    try:
+                        items.append(json.loads(line))
+                    except:
+                        pass
+        self._cache["review"] = items
+        return items
+    
     def get_underliers(self) -> List[str]:
         props = self.load_propositions()
         if props.is_empty():
@@ -509,17 +524,262 @@ def render_search(explorer: RulesExplorer, query: str) -> str:
     """
 
 
+def render_ladders(explorer: RulesExplorer) -> str:
+    ladders = explorer.get_ladders()
+    rules = explorer.load_rules()
+    
+    ladders_html = ""
+    for underlier, markets in sorted(ladders.items()):
+        items_html = ""
+        for m in markets:
+            conf = m.get("confidence", 0)
+            conf_class = "conf-high" if conf >= 0.6 else "conf-med" if conf >= 0.4 else "conf-low"
+            strike = m.get("strike")
+            strike_str = f"${strike:,.0f}" if strike else "N/A"
+            comp = m.get("comparator", "")
+            comp_symbol = "≥" if comp and "gte" in comp.lower() else "≤" if comp and "lte" in comp.lower() else ""
+            
+            items_html += f"""
+            <div class="ladder-item">
+                <div class="strike">{comp_symbol} {strike_str}</div>
+                <div class="title">
+                    <a href="?page=market&id={m['market_id']}" class="link">{html.escape(m.get('title', '')[:50])}</a>
+                </div>
+                <div class="confidence {conf_class}">{conf:.0%}</div>
+                <a href="{m.get('url', '#')}" target="_blank" class="link">↗</a>
+            </div>
+            """
+        
+        ladders_html += f"""
+        <div class="card">
+            <h2><a href="?page=underlier&u={underlier}" class="link">{underlier}</a></h2>
+            <p style="color:#888;margin-bottom:10px;">{len(markets)} markets in ladder</p>
+            <div class="ladder">{items_html}</div>
+        </div>
+        """
+    
+    return f"""
+    <div class="container">
+        <div class="card">
+            <h2>📊 All Price Ladders</h2>
+            <p style="color:#888;">Markets grouped by asset with monotonic price constraints</p>
+        </div>
+        {ladders_html if ladders_html else '<div class="card"><div class="empty">No price ladders detected</div></div>'}
+    </div>
+    """
+
+
+def render_constraints(explorer: RulesExplorer) -> str:
+    constraints = explorer.load_constraints()
+    props = explorer.load_propositions()
+    rules = explorer.load_rules()
+    
+    if constraints.is_empty():
+        return """
+        <div class="container">
+            <div class="card">
+                <h2>🔗 Constraints</h2>
+                <div class="empty">No constraints generated yet</div>
+            </div>
+        </div>
+        """
+    
+    # Group constraints by type
+    constraint_types = constraints["constraint_type"].unique().to_list() if "constraint_type" in constraints.columns else []
+    
+    content_html = ""
+    for ctype in constraint_types:
+        type_constraints = constraints.filter(pl.col("constraint_type") == ctype)
+        
+        items_html = ""
+        for row in type_constraints.head(50).iter_rows(named=True):
+            a_id = row.get("a_market_id", "")
+            b_id = row.get("b_market_id", "")
+            a_rule = rules.get(a_id, {})
+            b_rule = rules.get(b_id, {})
+            a_title = a_rule.get("title", a_id[:30] + "...")[:40]
+            b_title = b_rule.get("title", b_id[:30] + "...")[:40]
+            
+            items_html += f"""
+            <div class="constraint-viz">
+                <div class="market">
+                    <a href="?page=market&id={a_id}" class="link">{html.escape(a_title)}</a>
+                </div>
+                <div class="relation">{row.get('relation', '≤')}</div>
+                <div class="market">
+                    <a href="?page=market&id={b_id}" class="link">{html.escape(b_title)}</a>
+                </div>
+            </div>
+            """
+        
+        content_html += f"""
+        <div class="card">
+            <h2>{ctype}</h2>
+            <p style="color:#888;margin-bottom:15px;">{len(type_constraints)} constraints</p>
+            {items_html}
+        </div>
+        """
+    
+    return f"""
+    <div class="container">
+        <div class="card">
+            <h2>🔗 All Constraints</h2>
+            <p style="color:#888;">{len(constraints)} total constraints across {len(constraint_types)} types</p>
+        </div>
+        {content_html}
+    </div>
+    """
+
+
+def render_violations(explorer: RulesExplorer) -> str:
+    violations = explorer.load_violations()
+    rules = explorer.load_rules()
+    
+    if violations.is_empty():
+        return """
+        <div class="container">
+            <div class="card">
+                <h2>⚠️ Violations</h2>
+                <div class="empty">No violations detected - constraints are satisfied!</div>
+            </div>
+        </div>
+        """
+    
+    rows_html = ""
+    for row in violations.iter_rows(named=True):
+        a_id = row.get("a_market_id", "")
+        b_id = row.get("b_market_id", "")
+        a_rule = rules.get(a_id, {})
+        b_rule = rules.get(b_id, {})
+        a_title = a_rule.get("title", a_id[:20])[:40]
+        b_title = b_rule.get("title", b_id[:20])[:40]
+        magnitude = row.get("violation_magnitude", 0)
+        
+        # Color code by severity
+        severity_class = "badge-red" if magnitude > 0.1 else "badge-yellow" if magnitude > 0.05 else "badge-blue"
+        
+        rows_html += f"""
+        <tr>
+            <td><span class="badge {severity_class}">{magnitude:.4f}</span></td>
+            <td><a href="?page=market&id={a_id}" class="link">{html.escape(a_title)}</a></td>
+            <td>{row.get('a_prob', 0):.2%}</td>
+            <td>{row.get('relation', '')}</td>
+            <td><a href="?page=market&id={b_id}" class="link">{html.escape(b_title)}</a></td>
+            <td>{row.get('b_prob', 0):.2%}</td>
+            <td>{row.get('constraint_type', '')}</td>
+        </tr>
+        """
+    
+    return f"""
+    <div class="container">
+        <div class="card">
+            <h2>⚠️ Constraint Violations</h2>
+            <p style="color:#888;margin-bottom:15px;">
+                {len(violations)} violations detected - potential arbitrage opportunities
+            </p>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Magnitude</th>
+                        <th>Market A</th>
+                        <th>P(A)</th>
+                        <th>Should Be</th>
+                        <th>Market B</th>
+                        <th>P(B)</th>
+                        <th>Type</th>
+                    </tr>
+                </thead>
+                <tbody>{rows_html}</tbody>
+            </table>
+        </div>
+    </div>
+    """
+
+
+def render_review(explorer: RulesExplorer) -> str:
+    review_items = explorer.load_review_queue()
+    rules = explorer.load_rules()
+    
+    if not review_items:
+        return """
+        <div class="container">
+            <div class="card">
+                <h2>👀 Review Queue</h2>
+                <div class="empty">No markets need review - all propositions parsed with high confidence!</div>
+            </div>
+        </div>
+        """
+    
+    # Group by reason
+    by_reason = {}
+    for item in review_items:
+        reason = item.get("reason", "Unknown")
+        if reason not in by_reason:
+            by_reason[reason] = []
+        by_reason[reason].append(item)
+    
+    content_html = ""
+    for reason, items in sorted(by_reason.items(), key=lambda x: -len(x[1])):
+        rows_html = ""
+        for item in items[:30]:  # Limit per reason
+            market_id = item.get("market_id", "")
+            rule = rules.get(market_id, {})
+            title = rule.get("title") or item.get("title", "")[:50]
+            conf = item.get("confidence", 0)
+            conf_class = "badge-red" if conf < 0.3 else "badge-yellow"
+            
+            rows_html += f"""
+            <tr>
+                <td><a href="?page=market&id={market_id}" class="link">{html.escape(title[:50])}</a></td>
+                <td><span class="badge {conf_class}">{conf:.0%}</span></td>
+                <td style="max-width:300px;word-wrap:break-word;font-size:11px;color:#888;">{html.escape(item.get('parse_notes', '')[:100])}</td>
+                <td><a href="{rule.get('url', '#')}" target="_blank" class="link">↗</a></td>
+            </tr>
+            """
+        
+        content_html += f"""
+        <div class="card">
+            <h2>{html.escape(reason)}</h2>
+            <p style="color:#888;margin-bottom:15px;">{len(items)} markets</p>
+            <table>
+                <thead><tr><th>Title</th><th>Confidence</th><th>Notes</th><th>Link</th></tr></thead>
+                <tbody>{rows_html}</tbody>
+            </table>
+        </div>
+        """
+    
+    return f"""
+    <div class="container">
+        <div class="card">
+            <h2>👀 Review Queue</h2>
+            <p style="color:#888;">
+                {len(review_items)} markets need human review to improve parsing accuracy.
+                These are markets where the automated extraction had low confidence.
+            </p>
+        </div>
+        {content_html}
+    </div>
+    """
+
+
 def generate_html(explorer: RulesExplorer, page: str, params: dict) -> str:
+    # Count items for badges
+    violations = explorer.load_violations()
+    review_items = explorer.load_review_queue()
+    violations_count = len(violations) if not violations.is_empty() else 0
+    review_count = len(review_items)
+    
     nav_items = [
         ("home", "🏠 Overview", "?page=home"),
-        ("ladders", "📊 Ladders", "?page=home"),
+        ("ladders", "📊 Ladders", "?page=ladders"),
         ("constraints", "🔗 Constraints", "?page=constraints"),
-        ("violations", "⚠️ Violations", "?page=violations"),
+        ("violations", f"⚠️ Violations ({violations_count})", "?page=violations"),
+        ("review", f"👀 Review ({review_count})", "?page=review"),
     ]
     
     nav_html = ""
     for key, label, href in nav_items:
-        active = "active" if page == key or (page == "home" and key == "home") else ""
+        active = "active" if page == key else ""
         nav_html += f'<a href="{href}" class="{active}">{label}</a>'
     
     # Add search form
@@ -539,6 +799,14 @@ def generate_html(explorer: RulesExplorer, page: str, params: dict) -> str:
         content = render_underlier(explorer, params.get("u", [""])[0])
     elif page == "search":
         content = render_search(explorer, params.get("q", [""])[0])
+    elif page == "ladders":
+        content = render_ladders(explorer)
+    elif page == "constraints":
+        content = render_constraints(explorer)
+    elif page == "violations":
+        content = render_violations(explorer)
+    elif page == "review":
+        content = render_review(explorer)
     else:
         content = render_home(explorer)
     
