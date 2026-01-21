@@ -32,10 +32,10 @@ fi
 # Check if polars is installed
 if ! "$PYTHON_CMD" -c "import polars" 2>/dev/null; then
     echo "ERROR: polars not installed."
-    local root_dir="$(dirname "$SCRIPT_DIR")"
-    if [ -f "${root_dir}/venv/bin/python3" ]; then
+    ROOT_DIR="$(dirname "$SCRIPT_DIR")"
+    if [ -f "${ROOT_DIR}/venv/bin/python3" ]; then
         echo "Virtual environment found but polars is missing."
-        echo "Install with: ${root_dir}/venv/bin/pip install -r ${SCRIPT_DIR}/requirements.txt"
+        echo "Install with: ${ROOT_DIR}/venv/bin/pip install -r ${SCRIPT_DIR}/requirements.txt"
     else
         echo "Install with: pip install polars"
     fi

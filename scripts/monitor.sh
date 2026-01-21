@@ -108,7 +108,7 @@ if [ -f "$UNIVERSE_FILE" ]; then
     fi
 else
     echo "⚠️  Universe file not found: $UNIVERSE_FILE"
-    echo "   Run: ../bin/surveillance_scanner config/surveillance.toml"
+    echo "   Run: ../target/release/surveillance_scanner config/surveillance.toml"
 fi
 echo ""
 
@@ -151,7 +151,7 @@ if [ -f "$STATS_DIR/stats.csv" ] || [ -f "$STATS_DIR/stats.parquet" ]; then
     fi
 else
     echo "⚠️  No stats cache found for $VENUE/$DATE"
-    echo "   Run: ../bin/surveillance_miner --config config/surveillance.toml mine --venue $VENUE --date $DATE"
+    echo "   Run: ../target/release/surveillance_miner --config config/surveillance.toml mine --venue $VENUE --date $DATE"
 fi
 echo ""
 
@@ -289,7 +289,7 @@ echo ""
 echo "=== RECOMMENDATIONS ==="
 if [ ! -f "$UNIVERSE_FILE" ]; then
     echo "⚠️  Run scanner to discover markets:"
-    echo "   ../bin/surveillance_scanner config/surveillance.toml"
+    echo "   ../target/release/surveillance_scanner config/surveillance.toml"
 fi
 
 if [ "$TOTAL_FILES" -eq 0 ]; then
@@ -298,7 +298,7 @@ fi
 
 if [ ! -f "$STATS_DIR/stats.csv" ] && [ ! -f "$STATS_DIR/stats.parquet" ]; then
     echo "💡 Generate statistics:"
-    echo "   ../bin/surveillance_miner config/surveillance.toml $VENUE $UNIVERSE_DATE"
+    echo "   ../target/release/surveillance_miner config/surveillance.toml $VENUE $UNIVERSE_DATE"
 fi
 
 # Only warn about no recent files if collector is running AND we checked the correct date directory

@@ -173,21 +173,21 @@ echo ""
 # Check binaries
 echo "=== BINARIES ==="
 BINARY_COUNT=0
-if [ -f "${ROOT_DIR}/bin/surveillance_collect" ]; then
+if [ -f "${ROOT_DIR}/target/release/surveillance_collect" ]; then
     echo "✅ Collector binary: EXISTS"
     BINARY_COUNT=$((BINARY_COUNT + 1))
 else
     echo "⚠️  Collector binary: NOT FOUND (run: cargo build --release)"
 fi
 
-if [ -f "${ROOT_DIR}/bin/surveillance_scanner" ]; then
+if [ -f "${ROOT_DIR}/target/release/surveillance_scanner" ]; then
     echo "✅ Scanner binary: EXISTS"
     BINARY_COUNT=$((BINARY_COUNT + 1))
 else
     echo "⚠️  Scanner binary: NOT FOUND (run: cargo build --release)"
 fi
 
-if [ -f "${ROOT_DIR}/bin/surveillance_miner" ]; then
+if [ -f "${ROOT_DIR}/target/release/surveillance_miner" ]; then
     echo "✅ Miner binary: EXISTS"
     BINARY_COUNT=$((BINARY_COUNT + 1))
 else
@@ -238,7 +238,7 @@ if [ -f "$UNIVERSE_FILE" ]; then
     fi
 else
     echo "⚠️  Universe file not found for today: $UNIVERSE_FILE"
-    echo "   Run: ../bin/surveillance_scanner config/surveillance.toml"
+    echo "   Run: ../target/release/surveillance_scanner config/surveillance.toml"
 fi
 echo ""
 
@@ -269,7 +269,7 @@ elif [ "$COLLECTOR_RUNNING" = false ]; then
     if command -v systemctl > /dev/null 2>&1 && systemctl list-unit-files | grep -q surveillance-collect.service; then
         echo "   Start with: sudo systemctl start surveillance-collect"
     else
-        echo "   Start with: nohup ../bin/surveillance_collect config/surveillance.toml > collector.log 2>&1 &"
+        echo "   Start with: nohup ../target/release/surveillance_collect config/surveillance.toml > collector.log 2>&1 &"
     fi
 fi
 echo ""

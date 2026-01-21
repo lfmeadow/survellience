@@ -9,8 +9,6 @@ REPORT_DIR="${PROJECT_DIR}/reports"
 DATE=$(date -u +%Y-%m-%d)
 TIMESTAMP=$(date -u +%Y-%m-%d_%H%M%S)
 
-echo "$SCRIPT_DIR $PROJECT_DIR $LOG_DIR $REPORT_DIR $DATE $TIMESTAAMP"
-
 mkdir -p "${LOG_DIR}" "${REPORT_DIR}"
 
 echo "[$(date -u)] Starting miner for ${DATE}" >> "${LOG_DIR}/cron.log"

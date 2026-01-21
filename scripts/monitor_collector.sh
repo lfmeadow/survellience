@@ -16,7 +16,7 @@ set -euo pipefail
 # Configuration
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(dirname "$SCRIPT_DIR")"
-COLLECTOR_BINARY="${ROOT_DIR}/bin/surveillance_collect"
+COLLECTOR_BINARY="${ROOT_DIR}/target/release/surveillance_collect"
 CONFIG_FILE="${ROOT_DIR}/config/surveillance.toml"
 LOG_FILE="${SCRIPT_DIR}/monitor.log"
 ALERT_LOG="${SCRIPT_DIR}/alerts.log"
