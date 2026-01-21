@@ -13,8 +13,7 @@ echo "[$(date -u)] Starting scanner for ${DATE}" >> "${LOG_DIR}/cron.log"
 
 cd "${PROJECT_DIR}"
 "${PROJECT_DIR}/target/release/surveillance_scanner" \
-    --config "${PROJECT_DIR}/config/surveillance.toml" \
-    --venue polymarket \
+    "${PROJECT_DIR}/config/surveillance.toml" \
     >> "${LOG_DIR}/scanner_${DATE}.log" 2>&1
 
 echo "[$(date -u)] Scanner completed" >> "${LOG_DIR}/cron.log"
